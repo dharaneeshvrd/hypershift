@@ -37,7 +37,7 @@ import (
 const (
 	defaultReleaseVersion    = "0.0.1-snapshot"
 	defaultKubernetesVersion = "0.0.1-snapshot-kubernetes"
-	konnectivityAgentImage   = "registry.ci.openshift.org/hypershift/apiserver-network-proxy:latest"
+	konnectivityAgentImage   = "quay.io/basavarg013/konnectivity-agent:0.2"
 )
 
 func NewCommand() *cobra.Command {
