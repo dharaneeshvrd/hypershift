@@ -549,6 +549,12 @@ type IBMCloudPlatformSpec struct {
 
 // IBMCloudPowerVSPlatformSpec defines IBMCloud PowerVS specific settings for components
 type IBMCloudPowerVSPlatformSpec struct {
+	// ResourceGroup is the IBMCloud Resource Group in which the cluster resides. If not
+	// specified then default resource group of the account will be used.
+	//
+	// +immutable
+	ResourceGroup string `json:"resourceGroup,omitempty"`
+
 	// Region is the IBMCloud region in which the cluster resides. This configures the
 	// OCP control plane cloud integrations, and is used by NodePool to resolve
 	// the correct boot image for a given release.
@@ -567,13 +573,8 @@ type IBMCloudPowerVSPlatformSpec struct {
 	// +optional
 	Subnet *IBMCloudPowerVSResourceReference `json:"subnet,omitempty"`
 
-	// Image is the image to use for control plane cloud resources.
-	//
-	// +optional
-	Image *IBMCloudPowerVSResourceReference `json:"image,omitempty"`
-
 	// ServiceInstanceID is the ServiceInstance to use for control plane cloud resources.
-	ServiceInstanceID string `json:"serviceInstanceID"`
+	ServiceInstanceID string `json:"serviceInstanceID,omitempty"`
 
 	// LBConfig specifies IBM Cloud PowerVS Load Balancing configuration for the control
 	// plane.
@@ -616,7 +617,8 @@ type IBMCloudPowerVSPlatformSpec struct {
 // plane.
 type IBMCloudPowerVSLoadBalancerConfig struct {
 	// Name for VPC to used for all the service load balancer.
-	Name string `json:"name"`
+	// +immutable
+	VPC string `json:"vpc"`
 
 	// Region is the IBMCloud region in which VPC gets created, this VPC used for all the ingress traffic
 	// into the OCP cluster.

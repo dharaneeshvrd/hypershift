@@ -30,5 +30,5 @@ func IngressDomain(hcp *hyperv1.HostedControlPlane, ingressConfig *configv1.Ingr
 		}
 		return ingressConfig.Spec.Domain
 	}
-	return fmt.Sprintf("apps.%s", BaseDomain(hcp))
+	return fmt.Sprintf("apps.%s.%s", hcp.Name, BaseDomain(hcp))
 }

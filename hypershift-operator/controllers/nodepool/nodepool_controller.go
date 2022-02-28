@@ -343,6 +343,19 @@ func (r *NodePoolReconciler) reconcile(ctx context.Context, hcluster *hyperv1.Ho
 			})
 			return ctrl.Result{}, fmt.Errorf("couldn't discover an AMI for release image: %w", err)
 		}
+	} else if nodePool.Spec.Platform.Type == hyperv1.IBMCloudPowerVSPlatform {
+		powervsImage, _, err := getPowerVSImage(nodePool, hcluster.Spec.Platform.IBMCloudPowerVS.Region, releaseImage)
+		if err != nil {
+			meta.SetStatusCondition(&nodePool.Status.Conditions, metav1.Condition{
+				Type:               hyperv1.NodePoolValidAMIConditionType,
+				Status:             metav1.ConditionFalse,
+				Reason:             hyperv1.NodePoolValidationFailedConditionReason,
+				Message:            fmt.Sprintf("Couldn't discover an PowerVS Image for release image %q: %s", nodePool.Spec.Release.Image, err.Error()),
+				ObservedGeneration: nodePool.Generation,
+			})
+			return ctrl.Result{}, fmt.Errorf("couldn't discover an AMI for release image: %w", err)
+		}
+		ami = powervsImage.Release
 	}
 	setStatusCondition(&nodePool.Status.Conditions, hyperv1.NodePoolCondition{
 		Type:               hyperv1.NodePoolValidAMIConditionType,
@@ -500,6 +513,24 @@ func (r *NodePoolReconciler) reconcile(ctx context.Context, hcluster *hyperv1.Ho
 		}
 		nodePool.Annotations[nodePoolAnnotationCurrentConfigVersion] = targetConfigVersionHash
 		return ctrl.Result{}, nil
+	}
+
+	// Reconcile PowerVSImage only for the PowerVS platform
+	if nodePool.Spec.Platform.Type == hyperv1.IBMCloudPowerVSPlatform {
+		powervsImage, region, err := getPowerVSImage(nodePool, hcluster.Spec.Platform.IBMCloudPowerVS.Region, releaseImage)
+
+		// Reconcile (Platform)MachineTemplate.
+		image, mutateImage, _, err := ibmPowerVSImageBuilder(hcluster, nodePool, infraID, region, powervsImage)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if result, err := r.CreateOrUpdate(ctx, r.Client, image, func() error {
+			return mutateImage(image)
+		}); err != nil {
+			return ctrl.Result{}, err
+		} else {
+			log.Info("Reconciled Machine template", "result", result)
+		}
 	}
 
 	// Reconcile (Platform)MachineTemplate.
@@ -1438,7 +1469,7 @@ func machineTemplateBuilders(hcluster *hyperv1.HostedCluster, nodePool *hyperv1.
 
 	case hyperv1.IBMCloudPowerVSPlatform:
 		template = &capipowervs.IBMPowerVSMachineTemplate{}
-		machineTemplateSpec = ibmPowerVSMachineTemplateSpec(nodePool)
+		machineTemplateSpec = ibmPowerVSMachineTemplateSpec(nodePool, ami)
 		mutateTemplate = func(object client.Object) error {
 			o, _ := object.(*capipowervs.IBMPowerVSMachineTemplate)
 			o.Spec = *machineTemplateSpec.(*capipowervs.IBMPowerVSMachineTemplateSpec)

@@ -21,7 +21,7 @@ import (
 
 const (
 	// TODO(mkumatag): Move to OpenShift built image
-	imageCAPIBM = "gcr.io/k8s-staging-capi-ibmcloud/cluster-api-ibmcloud-controller:v0.2.0-alpha.3"
+	imageCAPIBM = "gcr.io/k8s-staging-capi-ibmcloud/cluster-api-ibmcloud-controller:main"
 )
 
 type IBMCloudPowerVS struct {

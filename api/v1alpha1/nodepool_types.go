@@ -329,13 +329,21 @@ type IBMCloudPowerVSNodePoolPlatform struct {
 	// ServiceInstanceID is the ServiceInstance to use for control plane cloud resources.
 	ServiceInstanceID string `json:"serviceInstanceID"`
 
-	// Image
-	Image *IBMCloudPowerVSResourceReference `json:"image"`
+	// Image used for deploying the nodes
+	// +optional
+	Image *IBMCloudPowerVSResourceReference `json:"image,omitempty"`
+
+	// StorageType for the image and nodes
+	// +optional
+	StorageType string `json:"storageType,omitempty"`
 
 	// Subnet is the subnet to use for control plane cloud resources.
 	//
 	// +optional
 	Subnet *IBMCloudPowerVSResourceReference `json:"subnet,omitempty"`
+
+	// DeletePolicy for the image
+	DeletePolicy string `json:"deletePolicy,omitempty"`
 }
 
 // KubevirtNodePoolPlatform specifies the configuration of a NodePool when operating

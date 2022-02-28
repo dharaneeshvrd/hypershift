@@ -1,8 +1,6 @@
 package globalconfig
 
 import (
-	"fmt"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	configv1 "github.com/openshift/api/config/v1"
@@ -36,5 +34,6 @@ func ReconcileDNSConfig(dns *configv1.DNS, hcp *hyperv1.HostedControlPlane) {
 }
 
 func BaseDomain(hcp *hyperv1.HostedControlPlane) string {
-	return fmt.Sprintf("%s.%s", hcp.Name, hcp.Spec.DNS.BaseDomain)
+	//return fmt.Sprintf("%s.%s", hcp.Name, hcp.Spec.DNS.BaseDomain)
+	return hcp.Spec.DNS.BaseDomain
 }
