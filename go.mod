@@ -1,4 +1,4 @@
-module github.com/openshift/hypershift
+module github.com/dharaneeshvrd/hypershift
 
 go 1.17
 
