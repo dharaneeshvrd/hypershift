@@ -2,7 +2,7 @@ package ibmcloud_powervs
 
 import (
 	"fmt"
-	
+
 	"github.com/IBM-Cloud/power-go-client/clients/instance"
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
 	"github.com/IBM/vpc-go-sdk/vpcv1"
@@ -123,30 +123,49 @@ func validateVpc(vpcName string, resourceGroupID string, v1 *vpcv1.VpcV1) (vpc *
 	return nil, fmt.Errorf("%s vpc not found", vpcName)
 }
 
-// validateCloudConnection ...
-// validates cloud connection's existence by name
-func validateCloudConnection(cloudConnName string, client *instance.IBMPICloudConnectionClient) (cloudConnID string, err error) {
+// listAndGetCloudConnection ... helper func
+// will list the cloud connection and return the matched cloud connection id and total cloud connection count
+func listAndGetCloudConnection(cloudConnName string, client *instance.IBMPICloudConnectionClient) (cloudConnectionCount int, cloudConnID string, err error) {
 	cloudConnL, err := client.GetAll()
 	if err != nil {
-		return "", err
+		return
 	}
 
-	if cloudConnL != nil {
-		for _, cc := range cloudConnL.CloudConnections {
-			if cc != nil && *cc.Name == cloudConnName {
-				cloudConn, err := client.Get(*cc.CloudConnectionID)
-				if err != nil {
-					return "", err
-				}
+	if cloudConnL == nil {
+		err = fmt.Errorf("cloud connection list returned is nil")
+		return
+	}
 
-				if cloudConn == nil {
-					return "", fmt.Errorf("unable to get cloud connection")
-				}
-
-				return *cloudConn.CloudConnectionID, nil
-			}
+	cloudConnectionCount = len(cloudConnL.CloudConnections)
+	for _, cc := range cloudConnL.CloudConnections {
+		if cc != nil && *cc.Name == cloudConnName {
+			cloudConnID = *cc.CloudConnectionID
+			return
 		}
 	}
 
-	return "", fmt.Errorf("%s cloud connection not found", cloudConnName)
+	err = fmt.Errorf("%s cloud connection not found", cloudConnName)
+	return
+}
+
+// validateCloudConnectionByName ...
+// validates cloud connection's existence by name
+func validateCloudConnectionByName(name string, client *instance.IBMPICloudConnectionClient) (cloudConnID string, err error) {
+	_, cloudConnID, err = listAndGetCloudConnection(name, client)
+	return
+}
+
+// validateCloudConnectionInPowerVSZone ...
+// while creating a new cloud connection this func validates whether to create a new cloud connection
+// with respect to powervs zone's existing cloud connections
+func validateCloudConnectionInPowerVSZone(name string, client *instance.IBMPICloudConnectionClient) (cloudConnID string, err error) {
+	cloudConnCount, cloudConnID, err := listAndGetCloudConnection(name, client)
+
+	if cloudConnCount == 2 || (cloudConnCount == 1 && cloudConnID != "") {
+		err = fmt.Errorf("powervs zone has more than one cloud connection, make sure only one cloud connection present per powervs zone")
+	} else {
+		err = nil
+	}
+
+	return
 }
