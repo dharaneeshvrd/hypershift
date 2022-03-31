@@ -67,9 +67,21 @@ type CreateOptions struct {
 }
 
 type IBMCloudPowerVSPlatformOptions struct {
-	APIKey     string
-	VPC        string
-	BaseDomain string
+	APIKey                 string
+	ResourceGroup          string
+	PowerVSRegion          string
+	PowerVSZone            string
+	PowerVSCloudInstanceID string
+	PowerVSCloudConnection string
+	VpcRegion              string
+	Vpc                    string
+	VpcSubnet              string
+
+	// nodepool related options
+	SysType    string
+	ProcType   string
+	Processors string
+	Memory     string
 }
 
 type AgentPlatformCreateOptions struct {

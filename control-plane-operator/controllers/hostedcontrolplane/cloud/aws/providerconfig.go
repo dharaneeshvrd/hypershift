@@ -15,7 +15,7 @@ const (
 
 const configTemplate = `[Global]
 Zone = %s
-VPC = %s
+Name = %s
 KubernetesClusterID = %s
 SubnetID = %s`
 

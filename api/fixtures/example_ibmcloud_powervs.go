@@ -6,7 +6,23 @@ import (
 )
 
 type ExampleIBMCloudPowerVSOptions struct {
-	ApiKey string
+	ApiKey                 string
+	AccountID              string
+	ResourceGroup          string
+	PowerVSRegion          string
+	PowerVSZone            string
+	PowerVSCloudInstanceID string
+	PowerVSSubnetID        string
+	PowerVSCloudConnection string
+	VpcRegion              string
+	Vpc                    string
+	VpcSubnet              string
+
+	// nodepool related options
+	SysType    string
+	ProcType   string
+	Processors string
+	Memory     string
 }
 
 type ExampleIBMCloudPowerVSResources struct {

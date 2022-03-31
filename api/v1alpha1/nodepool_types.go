@@ -329,6 +329,22 @@ type IBMCloudPowerVSNodePoolPlatform struct {
 	// ServiceInstanceID is the ServiceInstance to use for control plane cloud resources.
 	ServiceInstanceID string `json:"serviceInstanceID"`
 
+	// SysType used to host the instance(e.g: s922, e980, e880)
+	// +optional
+	SysType string `json:"sysType,omitempty"`
+
+	// ProcType (dedicated, shared, capped)
+	// +optional
+	ProcType string `json:"procType,omitempty"`
+
+	// Processors specifies the number of processors allocated
+	// +optional
+	Processors string `json:"processors,omitempty"`
+
+	// Memory specifies the amount of memory specified in GBs
+	// +optional
+	Memory string `json:"memory,omitempty"`
+
 	// Image used for deploying the nodes
 	// +optional
 	Image *IBMCloudPowerVSResourceReference `json:"image,omitempty"`

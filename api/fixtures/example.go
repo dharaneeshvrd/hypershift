@@ -414,6 +414,15 @@ web_identity_token_file = /var/run/secrets/openshift/serviceaccount/token
 		platformSpec = hyperv1.PlatformSpec{
 			Type: hyperv1.IBMCloudPowerVSPlatform,
 			IBMCloudPowerVS: &hyperv1.IBMCloudPowerVSPlatformSpec{
+				ResourceGroup:     o.IBMCloudPowerVS.ResourceGroup,
+				Region:            o.IBMCloudPowerVS.PowerVSRegion,
+				Zone:              o.IBMCloudPowerVS.PowerVSZone,
+				ServiceInstanceID: o.IBMCloudPowerVS.PowerVSCloudInstanceID,
+				VPC: &hyperv1.IBMCloudPowerVSVPC{
+					Name:   o.IBMCloudPowerVS.Vpc,
+					Region: o.IBMCloudPowerVS.VpcRegion,
+					Subnet: o.IBMCloudPowerVS.VpcSubnet,
+				},
 				KubeCloudControllerCreds:  corev1.LocalObjectReference{Name: powerVSResources.KubeCloudControllerIBMCloudPowerVSCreds.Name},
 				NodePoolManagementCreds:   corev1.LocalObjectReference{Name: powerVSResources.NodePoolManagementIBMCloudPowerVSCreds.Name},
 				ControlPlaneOperatorCreds: corev1.LocalObjectReference{Name: powerVSResources.ControlPlaneOperatorIBMCloudPowerVSCreds.Name},
@@ -662,7 +671,7 @@ web_identity_token_file = /var/run/secrets/openshift/serviceaccount/token
 			},
 		}
 		nodePools = append(nodePools, nodePool)
-	case hyperv1.NonePlatform, hyperv1.AgentPlatform, hyperv1.IBMCloudPowerVSPlatform:
+	case hyperv1.NonePlatform, hyperv1.AgentPlatform:
 		nodePools = append(nodePools, defaultNodePool(cluster.Name))
 	case hyperv1.AzurePlatform:
 		if len(o.Azure.AvailabilityZones) > 0 {
@@ -686,6 +695,19 @@ web_identity_token_file = /var/run/secrets/openshift/serviceaccount/token
 			}
 			nodePools = append(nodePools, nodePool)
 		}
+	case hyperv1.IBMCloudPowerVSPlatform:
+		nodePool := defaultNodePool(cluster.Name)
+		nodePool.Spec.Platform.IBMCloudPowerVS = &hyperv1.IBMCloudPowerVSNodePoolPlatform{
+			ServiceInstanceID: o.IBMCloudPowerVS.PowerVSCloudInstanceID,
+			SysType:           o.IBMCloudPowerVS.SysType,
+			ProcType:          o.IBMCloudPowerVS.ProcType,
+			Processors:        o.IBMCloudPowerVS.Processors,
+			Memory:            o.IBMCloudPowerVS.Memory,
+			Subnet: &hyperv1.IBMCloudPowerVSResourceReference{
+				ID: &o.IBMCloudPowerVS.PowerVSSubnetID,
+			},
+		}
+		nodePools = append(nodePools, nodePool)
 	default:
 		panic("Unsupported platform")
 	}

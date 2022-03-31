@@ -49,7 +49,7 @@ func TestReconcileCAPIInfraCR(t *testing.T) {
 			inputAPIEndpoint: fakeAPIEndpoint,
 			expectedObject:   nil,
 		},
-		"when VPC provider type specified for IBMCloud no CAPI cluster is created": {
+		"when Name provider type specified for IBMCloud no CAPI cluster is created": {
 			inputControlPlaneNamespace: fakeControlPlaneNamespace,
 			inputHostedCluster: &hyperv1.HostedCluster{
 				ObjectMeta: metav1.ObjectMeta{
@@ -87,7 +87,7 @@ func TestReconcileCAPIInfraCR(t *testing.T) {
 			inputAPIEndpoint: fakeAPIEndpoint,
 			expectedObject:   nil,
 		},
-		"when platform type not specified for IBMCloud a VPC CAPI cluster is created": {
+		"when platform type not specified for IBMCloud a Name CAPI cluster is created": {
 			inputControlPlaneNamespace: fakeControlPlaneNamespace,
 			inputHostedCluster: &hyperv1.HostedCluster{
 				ObjectMeta: metav1.ObjectMeta{

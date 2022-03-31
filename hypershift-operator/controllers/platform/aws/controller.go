@@ -307,7 +307,7 @@ func reconcileAWSEndpointServiceStatus(ctx context.Context, awsEndpointService *
 
 	// create the Endpoint Service
 	createEndpointServiceOutput, err := ec2Client.CreateVpcEndpointServiceConfigurationWithContext(ctx, &ec2.CreateVpcEndpointServiceConfigurationInput{
-		// TODO: we should probably do some sort of automated acceptance check against the VPC ID in the HostedCluster
+		// TODO: we should probably do some sort of automated acceptance check against the Name ID in the HostedCluster
 		AcceptanceRequired:      aws.Bool(false),
 		NetworkLoadBalancerArns: []*string{lbARN},
 		TagSpecifications: []*ec2.TagSpecification{{
@@ -319,7 +319,7 @@ func reconcileAWSEndpointServiceStatus(ctx context.Context, awsEndpointService *
 		if awsErr, ok := err.(awserr.Error); ok {
 			if awsErr.Code() == request.InvalidParameterErrCode {
 				// TODO: optional filter by regex on error msg (could be fragile)
-				// e.g. "LBs are already associated with another VPC Endpoint Service Configuration"
+				// e.g. "LBs are already associated with another Name Endpoint Service Configuration"
 				log.Info("service endpoint might already exist, attempting adoption")
 				var err error
 				serviceName, err = findExistingVpcEndpointService(ctx, ec2Client, *lbARN)

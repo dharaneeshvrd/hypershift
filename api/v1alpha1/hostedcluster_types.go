@@ -576,11 +576,11 @@ type IBMCloudPowerVSPlatformSpec struct {
 	// ServiceInstanceID is the ServiceInstance to use for control plane cloud resources.
 	ServiceInstanceID string `json:"serviceInstanceID,omitempty"`
 
-	// LBConfig specifies IBM Cloud PowerVS Load Balancing configuration for the control
+	// VPC specifies IBM Cloud PowerVS Load Balancing configuration for the control
 	// plane.
 	//
 	// +immutable
-	LBConfig *IBMCloudPowerVSLoadBalancerConfig `json:"lbConfig,omitempty"`
+	VPC *IBMCloudPowerVSVPC `json:"vpc,omitempty"`
 
 	// KubeCloudControllerCreds is a reference to a secret containing cloud
 	// credentials with permissions matching the cloud controller policy. The
@@ -613,12 +613,12 @@ type IBMCloudPowerVSPlatformSpec struct {
 	ControlPlaneOperatorCreds corev1.LocalObjectReference `json:"controlPlaneOperatorCreds"`
 }
 
-// IBMCloudPowerVSLoadBalancerConfig specifies IBM Cloud PowerVS LoadBalancer configuration for the control
+// IBMCloudPowerVSVPC specifies IBM Cloud PowerVS LoadBalancer configuration for the control
 // plane.
-type IBMCloudPowerVSLoadBalancerConfig struct {
+type IBMCloudPowerVSVPC struct {
 	// Name for VPC to used for all the service load balancer.
 	// +immutable
-	VPC string `json:"vpc"`
+	Name string `json:"name"`
 
 	// Region is the IBMCloud region in which VPC gets created, this VPC used for all the ingress traffic
 	// into the OCP cluster.

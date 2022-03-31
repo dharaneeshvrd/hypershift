@@ -346,9 +346,9 @@ func (r *NodePoolReconciler) reconcile(ctx context.Context, hcluster *hyperv1.Ho
 	} else if nodePool.Spec.Platform.Type == hyperv1.IBMCloudPowerVSPlatform {
 		powervsImage, _, err := getPowerVSImage(nodePool, hcluster.Spec.Platform.IBMCloudPowerVS.Region, releaseImage)
 		if err != nil {
-			meta.SetStatusCondition(&nodePool.Status.Conditions, metav1.Condition{
+			setStatusCondition(&nodePool.Status.Conditions, hyperv1.NodePoolCondition{
 				Type:               hyperv1.NodePoolValidAMIConditionType,
-				Status:             metav1.ConditionFalse,
+				Status:             corev1.ConditionFalse,
 				Reason:             hyperv1.NodePoolValidationFailedConditionReason,
 				Message:            fmt.Sprintf("Couldn't discover an PowerVS Image for release image %q: %s", nodePool.Spec.Release.Image, err.Error()),
 				ObservedGeneration: nodePool.Generation,
