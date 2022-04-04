@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"k8s.io/apimachinery/pkg/util/errors"
 	"strings"
 	"time"
 
@@ -113,6 +114,11 @@ func (options *DestroyInfraOptions) Run(ctx context.Context) (err error) {
 func (options *DestroyInfraOptions) DestroyInfra(infra *Infra) (err error) {
 	log.Log.WithName(options.InfraID).Info("Destroy Infra Started")
 
+	// if IBMCLOUD_API_KEY is not set, infra cannot be set up.
+	if cloudApiKey == "" {
+		return fmt.Errorf("IBMCLOUD_API_KEY not set")
+	}
+
 	resourceGroupID, err := getResourceGroupID(options.ResourceGroup)
 	if err != nil {
 		return err
@@ -185,13 +191,11 @@ func (options *DestroyInfraOptions) DestroyInfra(infra *Infra) (err error) {
 
 	log.Log.WithName(options.InfraID).Info("Destroy Infra Completed")
 
-	if len(errL) >= 1 {
-		for _, e := range errL {
-			log.Log.WithName(options.InfraID).Error(e, "")
-		}
+	if err := errors.NewAggregate(errL); err != nil {
+		return fmt.Errorf("error in destroying infra: %w", err)
 	}
 
-	return nil
+	return
 }
 
 // destroyPowerVsCloudInstance ...
@@ -199,55 +203,55 @@ func (options *DestroyInfraOptions) DestroyInfra(infra *Infra) (err error) {
 func destroyPowerVsCloudInstance(cloudInstanceID string, infraID string) (err error) {
 	rcv2, err := resourcecontrollerv2.NewResourceControllerV2(&resourcecontrollerv2.ResourceControllerV2Options{Authenticator: getIAMAuth()})
 	if err != nil {
-		return err
+		return
 	}
 
 	log.Log.WithName(infraID).Info("Deleting PowerVS cloud instance", "id", cloudInstanceID)
 	resp, err := rcv2.DeleteResourceInstance(&resourcecontrollerv2.DeleteResourceInstanceOptions{ID: &cloudInstanceID})
 	log.Log.WithName(infraID).Info("delete cloud instance", "resp", resp.String())
 	if err != nil {
-		return err
+		return
 	}
-	f := func() (bool, error) {
+	f := func() (cond bool, err error) {
 		resourceInst, resp, err := rcv2.GetResourceInstance(&resourcecontrollerv2.GetResourceInstanceOptions{ID: &cloudInstanceID})
 		if err != nil {
 			log.Log.WithName(infraID).Error(err, "error in querying deleted cloud instance", "resp", resp.String())
-			return false, err
+			return
 		}
 
 		if resourceInst != nil {
 			if *resourceInst.State == powerVSCloudInstanceRemovedState {
-				return true, nil
+				cond = true
+				return
 			}
 
 			log.Log.WithName(infraID).Info("Waiting for PowerVS cloud instance deletion", "status", *resourceInst.State, "lastOp", resourceInst.LastOperation)
 		}
 
-		return false, nil
+		return
 	}
 
-	err = wait.PollImmediate(pollingInterval, cloudInstanceDeletionTimeout, f)
-	return err
+	return wait.PollImmediate(pollingInterval, cloudInstanceDeletionTimeout, f)
 }
 
 // monitorPowerVsJob ...
 // monitoring the submitted deletion job
 func monitorPowerVsJob(id string, client *instance.IBMPIJobClient, infraID string, timeout time.Duration) (err error) {
 
-	f := func() (bool, error) {
+	f := func() (cond bool, err error) {
 		job, err := client.Get(id)
 		log.Log.WithName(infraID).Info("Waiting for PowerVS job to complete", "id", id, "status", job.Status.State, "operation_action", *job.Operation.Action, "operation_target", *job.Operation.Target)
 		if err != nil {
-			return false, err
+			return
 		}
 		if *job.Status.State == powerVSJobCompletedState || *job.Status.State == powerVSJobFailedState {
-			return true, nil
+			cond = true
+			return
 		}
-		return false, nil
+		return
 	}
 
-	err = wait.PollImmediate(pollingInterval, timeout, f)
-	return err
+	return wait.PollImmediate(pollingInterval, timeout, f)
 }
 
 // destroyPowerVsCloudConnection ...
@@ -262,7 +266,7 @@ func destroyPowerVsCloudConnection(options *DestroyInfraOptions, infra *Infra, c
 
 	cloudConnL, err := client.GetAll()
 	if err != nil || cloudConnL == nil {
-		return err
+		return
 	}
 
 	if len(cloudConnL.CloudConnections) < 1 {
@@ -280,7 +284,7 @@ func destroyPowerVsCloudConnection(options *DestroyInfraOptions, infra *Infra, c
 			return deletePowerVsCloudConnection(options, *cloudConn.CloudConnectionID, client, jobClient)
 		}
 	}
-	return nil
+	return
 }
 
 func deletePowerVsCloudConnection(options *DestroyInfraOptions, id string, client *instance.IBMPICloudConnectionClient, jobClient *instance.IBMPIJobClient) (err error) {
@@ -306,7 +310,7 @@ func destroyPowerVsDhcpServer(infra *Infra, cloudInstanceID string, session *ibm
 
 	dhcpServers, err := client.GetAll()
 	if err != nil {
-		return err
+		return
 	}
 
 	if dhcpServers == nil || len(dhcpServers) < 1 {
@@ -319,33 +323,43 @@ func destroyPowerVsDhcpServer(infra *Infra, cloudInstanceID string, session *ibm
 		dhcpID = *dhcp.ID
 		err = client.Delete(*dhcp.ID)
 		if err != nil {
-			return err
+			return
 		}
 		break
 	}
 	instanceClient := instance.NewIBMPIInstanceClient(context.Background(), session, cloudInstanceID)
 
-	f := func() (bool, error) {
+	// TO-DO: need to replace the logic of waiting for dhcp service deletion by using jobReference.
+	// jobReference is not yet added in SDK
+	f := func() (cond bool, err error) {
 		dhcpInstance, err := instanceClient.Get(dhcpID)
 		if err != nil {
-			return false, err
+			errMsg := err.Error()
+			// when instance becomes does not exist, infra destroy can proceed
+			if strings.Contains(errMsg, "pvm-instance does not exist") {
+				err = nil
+				cond = true
+			}
+			return
 		}
 
 		if dhcpInstance == nil {
-			return false, fmt.Errorf("dhcpInstance is nil")
+			err = fmt.Errorf("dhcpInstance is nil")
+			return
 		}
 
 		log.Log.WithName(infraID).Info("Waiting for DhcpServer to destroy", "id", *dhcpInstance.PvmInstanceID, "status", *dhcpInstance.Status)
 		if *dhcpInstance.Status == dhcpInstanceShutOffState || *dhcpInstance.Status == dhcpServiceErrorState {
-			return true, nil
+			cond = true
+			return
 		}
 
-		return false, nil
+		return
 	}
 
 	err = wait.PollImmediate(pollingInterval, dhcpServerDeletionTimeout, f)
 
-	return err
+	return
 }
 
 // destroyVpc ...
@@ -355,7 +369,7 @@ func destroyVpc(options *DestroyInfraOptions, infra *Infra, resourceGroupID stri
 		return deleteVpc(infra.VpcID, v1, infraID)
 	}
 
-	f := func(start string) (bool, string, error) {
+	f := func(start string) (isDone bool, nextUrl string, err error) {
 		vpcListOpt := vpcv1.ListVpcsOptions{ResourceGroupID: &resourceGroupID}
 		if start != "" {
 			vpcListOpt.Start = &start
@@ -363,11 +377,12 @@ func destroyVpc(options *DestroyInfraOptions, infra *Infra, resourceGroupID stri
 
 		vpcL, _, err := v1.ListVpcs(&vpcListOpt)
 		if err != nil {
-			return false, "", err
+			return
 		}
 
 		if vpcL == nil || len(vpcL.Vpcs) <= 0 {
-			return false, "", fmt.Errorf("no vpcs available")
+			err = fmt.Errorf("no vpcs available")
+			return
 		}
 
 		var vpcName string
@@ -380,19 +395,19 @@ func destroyVpc(options *DestroyInfraOptions, infra *Infra, resourceGroupID stri
 		for _, vpc := range vpcL.Vpcs {
 			if *vpc.Name == vpcName && strings.Contains(*vpc.CRN, options.VpcRegion) {
 				err = deleteVpc(*vpc.ID, v1, infraID)
-				return true, "", err
+				isDone = true
+				return
 			}
 		}
 		if vpcL.Next != nil && *vpcL.Next.Href != "" {
-			return false, *vpcL.Next.Href, nil
+			nextUrl = *vpcL.Next.Href
+			return
 		}
-
-		return true, "", nil
+		isDone = true
+		return
 	}
 
-	err = pagingHelper(f)
-
-	return err
+	return pagingHelper(f)
 }
 
 // deleteVpc ...
@@ -410,7 +425,7 @@ func destroyVpcSubnet(options *DestroyInfraOptions, infra *Infra, resourceGroupI
 		return deleteVpcSubnet(infra.VpcSubnetID, v1, infraID)
 	}
 
-	f := func(start string) (bool, string, error) {
+	f := func(start string) (isDone bool, nextUrl string, err error) {
 
 		listSubnetOpt := vpcv1.ListSubnetsOptions{ResourceGroupID: &resourceGroupID}
 		if start != "" {
@@ -418,11 +433,12 @@ func destroyVpcSubnet(options *DestroyInfraOptions, infra *Infra, resourceGroupI
 		}
 		subnetL, _, err := v1.ListSubnets(&listSubnetOpt)
 		if err != nil {
-			return false, "", err
+			return
 		}
 
 		if subnetL == nil || len(subnetL.Subnets) <= 0 {
-			return false, "", fmt.Errorf("no subnets available")
+			err = fmt.Errorf("no subnets available")
+			return
 		}
 
 		var vpcName string
@@ -435,20 +451,22 @@ func destroyVpcSubnet(options *DestroyInfraOptions, infra *Infra, resourceGroupI
 		for _, subnet := range subnetL.Subnets {
 			if *subnet.VPC.Name == vpcName && strings.Contains(*subnet.Zone.Name, options.VpcRegion) {
 				err = deleteVpcSubnet(*subnet.ID, v1, infraID)
-				return true, "", err
+				isDone = true
+				return
 			}
 		}
 
 		// For paging over next set of resources getting the start token and passing it for next iteration
 		if subnetL.Next != nil && *subnetL.Next.Href != "" {
-			return false, *subnetL.Next.Href, nil
+			nextUrl = *subnetL.Next.Href
+			return
 		}
-		return true, "", nil
+
+		isDone = true
+		return
 	}
 
-	err = pagingHelper(f)
-
-	return err
+	return pagingHelper(f)
 }
 
 // deleteVpcSubnet ...

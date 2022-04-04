@@ -10,11 +10,12 @@ import (
 func getStartToken(nextUrlS string) (start string, err error) {
 	nextUrl, err := url.Parse(nextUrlS)
 	if err != nil || nextUrl == nil {
-		return "", fmt.Errorf("could not parse next url for getting next resources %w", err)
+		err = fmt.Errorf("could not parse next url for getting next resources %w", err)
+		return
 	}
 
 	start = nextUrl.Query().Get("start")
-	return start, nil
+	return
 }
 
 // pagingHelper ...
@@ -49,5 +50,5 @@ func pagingHelper(f func(string) (bool, string, error)) (err error) {
 		}
 	}
 
-	return err
+	return
 }
