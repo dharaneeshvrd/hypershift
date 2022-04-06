@@ -171,7 +171,7 @@ func validateCloudConnectionByName(name string, client *instance.IBMPICloudConne
 func validateCloudConnectionInPowerVSZone(name string, client *instance.IBMPICloudConnectionClient) (cloudConnID string, err error) {
 	cloudConnCount, cloudConnID, err := listAndGetCloudConnection(name, client)
 
-	if cloudConnCount > 2 || (cloudConnCount > 0 && cloudConnCount <= 2 && cloudConnID == "") {
+	if cloudConnCount > 2 || (cloudConnCount <= 2 && cloudConnID == "") {
 		err = fmt.Errorf("cannot create new cloud connection in powervs zone. only 2 connection is allowed.")
 	} else {
 		err = nil
