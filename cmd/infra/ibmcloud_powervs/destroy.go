@@ -499,7 +499,7 @@ func deleteVpcSubnet(id string, v1 *vpcv1.VpcV1, infraID string) (err error) {
 
 	f := func() (cond bool, err error) {
 		_, resp, err := v1.GetSubnet(&vpcv1.GetSubnetOptions{ID: &id})
-		log.Log.WithName(infraID).Info("resp", resp)
+		log.Log.WithName(infraID).Info("resp", "string", resp)
 		if err != nil {
 			return
 		}
