@@ -24,6 +24,7 @@ const (
 	// Time duration for monitoring the resource readiness
 	cloudInstanceDeletionTimeout   = time.Minute * 10
 	powerVSResourceDeletionTimeout = time.Minute * 5
+	vpcResourceDeletionTimeout     = time.Minute * 2
 	dhcpServerDeletionTimeout      = time.Minute * 10
 
 	// Resource desired states
@@ -131,38 +132,47 @@ func (options *DestroyInfraOptions) DestroyInfra(infra *Infra) (err error) {
 		return err
 	}
 
+	var skipPowerVs bool
+	errL := make([]error, 0)
+
 	// getting the powervs cloud instance id
 	if infra != nil && infra.PowerVSCloudInstanceID != "" {
 		powerVsCloudInstanceID = infra.PowerVSCloudInstanceID
 	} else if options.PowerVSCloudInstanceID != "" {
 		_, err := validateCloudInstanceByID(options.PowerVSCloudInstanceID)
 		if err != nil {
-			return err
+			errL = append(errL, err)
+			skipPowerVs = true
 		}
 		powerVsCloudInstanceID = options.PowerVSCloudInstanceID
 	} else {
 		cloudInstance, err := validateCloudInstanceByName(fmt.Sprintf("%s-%s", options.InfraID, cloudInstanceNameSuffix), resourceGroupID, options.PowerVSZone, serviceID, servicePlanID)
 		if err != nil {
-			return err
+			errL = append(errL, err)
+			skipPowerVs = true
 		}
-		powerVsCloudInstanceID = *cloudInstance.GUID
+		if cloudInstance != nil {
+			powerVsCloudInstanceID = *cloudInstance.GUID
+		}
 	}
 
-	session, err := createPowerVSSession(options.PowerVSRegion, options.PowerVSZone, options.Debug)
-	if err != nil {
-		return err
+	var session *ibmpisession.IBMPISession
+	if !skipPowerVs {
+		session, err = createPowerVSSession(options.PowerVSRegion, options.PowerVSZone, options.Debug)
+		if err != nil {
+			return err
+		}
+
+		err = destroyPowerVsCloudConnection(options, infra, powerVsCloudInstanceID, session)
+		if err != nil {
+			errL = append(errL, fmt.Errorf("error destroying powervs cloud connection: %w", err))
+			log.Log.WithName(options.InfraID).Error(err, "error destroying powervs cloud connection")
+		}
 	}
 
 	v1, err := createVpcService(options.VpcRegion, options.InfraID)
 	if err != nil {
 		return err
-	}
-	errL := make([]error, 0)
-
-	err = destroyPowerVsCloudConnection(options, infra, powerVsCloudInstanceID, session)
-	if err != nil {
-		errL = append(errL, fmt.Errorf("error destroying powervs cloud connection: %w", err))
-		log.Log.WithName(options.InfraID).Error(err, "error destroying powervs cloud connection")
 	}
 
 	err = destroyVpcSubnet(options, infra, resourceGroupID, v1, options.InfraID)
@@ -177,16 +187,19 @@ func (options *DestroyInfraOptions) DestroyInfra(infra *Infra) (err error) {
 		log.Log.WithName(options.InfraID).Error(err, "error destroying vpc")
 	}
 
-	err = destroyPowerVsDhcpServer(infra, powerVsCloudInstanceID, session, options.InfraID)
-	if err != nil {
-		errL = append(errL, fmt.Errorf("error destroying powervs dhcp server: %w", err))
-		log.Log.WithName(options.InfraID).Error(err, "error destroying powervs dhcp server")
-	}
+	if !skipPowerVs {
+		/*
+			err = destroyPowerVsDhcpServer(infra, powerVsCloudInstanceID, session, options.InfraID)
+			if err != nil {
+				errL = append(errL, fmt.Errorf("error destroying powervs dhcp server: %w", err))
+				log.Log.WithName(options.InfraID).Error(err, "error destroying powervs dhcp server")
+			}*/
 
-	err = destroyPowerVsCloudInstance(powerVsCloudInstanceID, options.InfraID)
-	if err != nil {
-		errL = append(errL, fmt.Errorf("error destroying powervs cloud instance: %w", err))
-		log.Log.WithName(options.InfraID).Error(err, "error destroying powervs cloud instance")
+		err = destroyPowerVsCloudInstance(powerVsCloudInstanceID, options.InfraID)
+		if err != nil {
+			errL = append(errL, fmt.Errorf("error destroying powervs cloud instance: %w", err))
+			log.Log.WithName(options.InfraID).Error(err, "error destroying powervs cloud instance")
+		}
 	}
 
 	log.Log.WithName(options.InfraID).Info("Destroy Infra Completed")
@@ -483,5 +496,16 @@ func destroyVpcSubnet(options *DestroyInfraOptions, infra *Infra, resourceGroupI
 func deleteVpcSubnet(id string, v1 *vpcv1.VpcV1, infraID string) (err error) {
 	log.Log.WithName(infraID).Info("Deleting VPC subnet", "subnetId", id)
 	_, err = v1.DeleteSubnet(&vpcv1.DeleteSubnetOptions{ID: &id})
-	return err
+
+	f := func() (cond bool, err error) {
+		_, resp, err := v1.GetSubnet(&vpcv1.GetSubnetOptions{ID: &id})
+		log.Log.WithName(infraID).Info("resp", resp)
+		if err != nil {
+			return
+		}
+		return
+	}
+
+	err = wait.PollImmediate(pollingInterval, vpcResourceDeletionTimeout, f)
+	return
 }

@@ -60,7 +60,17 @@ const (
 	cloudConnEstablishedStateTimeout = time.Minute * 30
 	dhcpServerCreationTimeout        = time.Minute * 30
 	cloudConnUpdateTimeout           = time.Minute * 10
+
+	// Service Name
+	powerVsService  = "powervs"
+	vpcService      = "vpc"
+	platformService = "platform"
 )
+
+var customEpEnvNameMapping = map[string]string{
+	powerVsService:  "IBMCLOUD_POWER_API_ENDPOINT",
+	vpcService:      "IBMCLOUD_VPC_API_ENDPOINT",
+	platformService: "IBMCLOUD_PLATFORM_API_ENDPOINT"}
 
 // CreateInfraOptions ...
 // command line options for setting up infra in IBM PowerVS cloud
@@ -81,6 +91,9 @@ type CreateInfraOptions struct {
 type TimeDuration struct {
 	time.Duration
 }
+
+var powerVsDefaultUrl = func(region string) string { return fmt.Sprintf("https://%s.power-iaas.cloud.ibm.com", region) }
+var vpcDefaultUrl = func(region string) string { return fmt.Sprintf("https://%s.iaas.cloud.ibm.com/v1", region) }
 
 // MarshalJSON ...
 // custom marshaling func for time.Duration to parse Duration into user-friendly format
@@ -287,7 +300,10 @@ func getIAMAuth() *core.IamAuthenticator {
 // setupBaseDomain ...
 // get domain id and crn of given base domain
 func (infra *Infra) setupBaseDomain(options *CreateInfraOptions) (err error) {
-	rcv2, err := resourcecontrollerv2.NewResourceControllerV2(&resourcecontrollerv2.ResourceControllerV2Options{Authenticator: getIAMAuth()})
+	rcv2, err := resourcecontrollerv2.NewResourceControllerV2(&resourcecontrollerv2.ResourceControllerV2Options{
+		Authenticator: getIAMAuth(),
+		URL:           getCustomEndpointUrl(platformService, resourcecontrollerv2.DefaultServiceURL),
+	})
 	if err != nil {
 		return
 	}
@@ -373,7 +389,10 @@ func (infra *Infra) setupBaseDomain(options *CreateInfraOptions) (err error) {
 // getServiceInfo ...
 // retrieving id info of given service and service plan
 func getServiceInfo(service string, servicePlan string) (serviceID string, servicePlanID string, err error) {
-	gcv1, err := globalcatalogv1.NewGlobalCatalogV1(&globalcatalogv1.GlobalCatalogV1Options{Authenticator: getIAMAuth()})
+	gcv1, err := globalcatalogv1.NewGlobalCatalogV1(&globalcatalogv1.GlobalCatalogV1Options{
+		Authenticator: getIAMAuth(),
+		URL:           getCustomEndpointUrl(platformService, globalcatalogv1.DefaultServiceURL),
+	})
 	if err != nil {
 		return
 	}
@@ -421,10 +440,23 @@ func getServiceInfo(service string, servicePlan string) (serviceID string, servi
 	return
 }
 
+func getCustomEndpointUrl(serviceName string, defaultUrl string) (url string) {
+	apiEP := os.Getenv(customEpEnvNameMapping[serviceName])
+	url = defaultUrl
+	if apiEP != "" {
+		url = strings.Replace(defaultUrl, "https://", fmt.Sprintf("https://%s.", apiEP), 1)
+	}
+
+	return
+}
+
 // getResourceGroupID ...
 // retrieving id of resource group
 func getResourceGroupID(resourceGroup string) (resourceGroupID string, err error) {
-	rmv2, err := resourcemanagerv2.NewResourceManagerV2(&resourcemanagerv2.ResourceManagerV2Options{Authenticator: getIAMAuth()})
+	rmv2, err := resourcemanagerv2.NewResourceManagerV2(&resourcemanagerv2.ResourceManagerV2Options{
+		Authenticator: getIAMAuth(),
+		URL:           getCustomEndpointUrl(platformService, resourcemanagerv2.DefaultServiceURL),
+	})
 	if err != nil {
 		return
 	}
@@ -457,7 +489,11 @@ func getResourceGroupID(resourceGroup string) (resourceGroupID string, err error
 // creating powervs cloud instance
 func (infra *Infra) createCloudInstance(options *CreateInfraOptions) (resourceInstance *resourcecontrollerv2.ResourceInstance, err error) {
 
-	rcv2, err := resourcecontrollerv2.NewResourceControllerV2(&resourcecontrollerv2.ResourceControllerV2Options{Authenticator: getIAMAuth()})
+	rcv2, err := resourcecontrollerv2.NewResourceControllerV2(&resourcecontrollerv2.ResourceControllerV2Options{
+		Authenticator: getIAMAuth(),
+		URL:           getCustomEndpointUrl(platformService, resourcecontrollerv2.DefaultServiceURL),
+	})
+
 	if err != nil {
 		return
 	}
@@ -532,7 +568,10 @@ func (infra *Infra) createCloudInstance(options *CreateInfraOptions) (resourceIn
 // getAccount ...
 // getting the account id from core.Authenticator
 func getAccount(auth core.Authenticator) (accountID string, err error) {
-	iamv1, err := iamidentityv1.NewIamIdentityV1(&iamidentityv1.IamIdentityV1Options{Authenticator: auth})
+	iamv1, err := iamidentityv1.NewIamIdentityV1(&iamidentityv1.IamIdentityV1Options{
+		Authenticator: auth,
+		URL:           getCustomEndpointUrl(platformService, iamidentityv1.DefaultServiceURL),
+	})
 	if err != nil {
 		return
 	}
@@ -563,7 +602,7 @@ func createPowerVSSession(powerVSRegion string, powerVSZone string, debug bool) 
 
 	opt := &ibmpisession.IBMPIOptions{Authenticator: auth,
 		Debug:       debug,
-		Region:      powerVSRegion,
+		URL:         getCustomEndpointUrl(powerVsService, powerVsDefaultUrl(powerVSRegion)),
 		UserAccount: account,
 		Zone:        powerVSZone}
 
@@ -577,7 +616,7 @@ func createVpcService(region string, infraID string) (v1 *vpcv1.VpcV1, err error
 	v1, err = vpcv1.NewVpcV1(&vpcv1.VpcV1Options{
 		ServiceName:   "vpcs",
 		Authenticator: getIAMAuth(),
-		URL:           fmt.Sprintf("https://%s.iaas.cloud.ibm.com/v1", region),
+		URL:           getCustomEndpointUrl(vpcService, vpcDefaultUrl(region)),
 	})
 	log.Log.WithName(infraID).Info("Created VPC Service for", "URL", v1.GetServiceURL())
 	return
@@ -1073,24 +1112,29 @@ func (infra *Infra) isCloudConnectionReady(options *CreateInfraOptions, session 
 		}
 	}
 
-	f := func() (cond bool, err error) {
-		cloudConn, err = client.Get(infra.PowerVSCloudConnectionID)
-		if err != nil {
+	for retry := 0; retry < 2; retry++ {
+		f := func() (cond bool, err error) {
+			cloudConn, err = client.Get(infra.PowerVSCloudConnectionID)
+			if err != nil {
+				return
+			}
+
+			if cloudConn != nil {
+				log.Log.WithName(infra.ID).Info("Waiting for Cloud Connection to up", "id", cloudConn.CloudConnectionID, "status", cloudConn.LinkStatus)
+				if *cloudConn.LinkStatus == cloudConnectionEstablishedState {
+					cond = true
+					return
+				}
+			}
+
 			return
 		}
 
-		if cloudConn != nil {
-			log.Log.WithName(infra.ID).Info("Waiting for Cloud Connection to up", "id", cloudConn.CloudConnectionID, "status", cloudConn.LinkStatus)
-			if *cloudConn.LinkStatus == cloudConnectionEstablishedState {
-				cond = true
-				return
-			}
+		err = wait.PollImmediate(pollingInterval, cloudConnEstablishedStateTimeout, f)
+		if err == nil {
+			break
 		}
-
-		return
 	}
-
-	err = wait.PollImmediate(pollingInterval, cloudConnEstablishedStateTimeout, f)
 	if cloudConn != nil {
 		infra.Stats.CloudConnState.Duration.Duration = time.Since(startTime)
 		infra.Stats.CloudConnState.Status = *cloudConn.LinkStatus
