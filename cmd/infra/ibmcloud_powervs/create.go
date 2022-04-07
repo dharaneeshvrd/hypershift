@@ -15,6 +15,7 @@ import (
 	"github.com/IBM-Cloud/power-go-client/ibmpisession"
 	"github.com/IBM-Cloud/power-go-client/power/models"
 	"github.com/IBM/go-sdk-core/v5/core"
+	"github.com/IBM/networking-go-sdk/directlinkv1"
 	"github.com/IBM/networking-go-sdk/zonesv1"
 	"github.com/IBM/platform-services-go-sdk/globalcatalogv1"
 	"github.com/IBM/platform-services-go-sdk/iamidentityv1"
@@ -970,6 +971,8 @@ func (infra *Infra) setupPowerVSDhcp(options *CreateInfraOptions, session *ibmpi
 	if len(dhcpServers) > 0 {
 		for _, dhcp := range dhcpServers {
 			log.Log.WithName(infra.ID).Info("Using existing DHCP server present in cloud instance")
+			_, _ = client.Get(*dhcp.ID)
+			//log.Log.WithName(infra.ID).Info("dhcp", "network ip", *d.Leases[0].InstanceIP)
 			dhcpServer = &models.DHCPServerDetail{ID: dhcp.ID, Status: dhcp.Status, Network: dhcp.Network}
 			break
 		}
@@ -1112,6 +1115,15 @@ func (infra *Infra) isCloudConnectionReady(options *CreateInfraOptions, session 
 		}
 	}
 
+	currentTime := time.Now()
+	currentDate := fmt.Sprintf("%d-%02d-%02d", currentTime.Year(), currentTime.Month(), currentTime.Day())
+	gwType := "bgp"
+
+	dl, err := directlinkv1.NewDirectLinkV1(&directlinkv1.DirectLinkV1Options{Authenticator: getIAMAuth(), Version: &currentDate})
+	if err != nil {
+		return err
+	}
+
 	for retry := 0; retry < 2; retry++ {
 		f := func() (cond bool, err error) {
 			cloudConn, err = client.Get(infra.PowerVSCloudConnectionID)
@@ -1126,6 +1138,13 @@ func (infra *Infra) isCloudConnectionReady(options *CreateInfraOptions, session 
 					return
 				}
 			}
+
+			_, re, err := dl.GetGatewayStatus(&directlinkv1.GetGatewayStatusOptions{ID: &infra.PowerVSCloudConnectionID, Type: &gwType})
+			if err != nil {
+				return
+			}
+
+			log.Log.WithName(infra.ID).Info("DL", "BGP Status", re.Result)
 
 			return
 		}
