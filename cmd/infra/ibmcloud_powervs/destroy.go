@@ -235,6 +235,12 @@ func destroyPowerVsCloudInstance(cloudInstanceID string, infraID string) (err er
 				return
 			}
 
+			log.Log.WithName(infraID).Info("resp", "code", resp.StatusCode, "message", resp.String())
+
+			if resp.StatusCode >= 400 {
+				err = fmt.Errorf("retrying due to resp code is %d and message is %s", resp.StatusCode, resp.String())
+				return
+			}
 			if resourceInst != nil {
 				if *resourceInst.State == powerVSCloudInstanceRemovedState {
 					cond = true
