@@ -224,7 +224,7 @@ func destroyPowerVsCloudInstance(cloudInstanceID string, infraID string) (err er
 		_, err = rcv2.DeleteResourceInstance(&resourcecontrollerv2.DeleteResourceInstanceOptions{ID: &cloudInstanceID})
 
 		if err != nil {
-			log.Log.Error(err, "error in deleting powervs cloud instance")
+			log.Log.WithName(infraID).Error(err, "error in deleting powervs cloud instance")
 			continue
 		}
 
@@ -262,10 +262,15 @@ func monitorPowerVsJob(id string, client *instance.IBMPIJobClient, infraID strin
 
 	f := func() (cond bool, err error) {
 		job, err := client.Get(id)
-		log.Log.WithName(infraID).Info("Waiting for PowerVS job to complete", "id", id, "status", job.Status.State, "operation_action", *job.Operation.Action, "operation_target", *job.Operation.Target)
 		if err != nil {
 			return
 		}
+		if job == nil {
+			err = fmt.Errorf("job returned for %s is nil", id)
+			return
+		}
+		log.Log.WithName(infraID).Info("Waiting for PowerVS job to complete", "id", id, "status", job.Status.State, "operation_action", *job.Operation.Action, "operation_target", *job.Operation.Target)
+
 		if *job.Status.State == powerVSJobCompletedState || *job.Status.State == powerVSJobFailedState {
 			cond = true
 			return
