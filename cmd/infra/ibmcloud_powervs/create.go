@@ -1117,7 +1117,7 @@ func (infra *Infra) isCloudConnectionReady(options *CreateInfraOptions, session 
 
 	currentTime := time.Now()
 	currentDate := fmt.Sprintf("%d-%02d-%02d", currentTime.Year(), currentTime.Month(), currentTime.Day())
-	gwType := "bgp"
+	gatewayStatusType := "bgp"
 
 	dl, err := directlinkv1.NewDirectLinkV1(&directlinkv1.DirectLinkV1Options{Authenticator: getIAMAuth(), Version: &currentDate})
 	if err != nil {
@@ -1139,12 +1139,12 @@ func (infra *Infra) isCloudConnectionReady(options *CreateInfraOptions, session 
 				}
 			}
 
-			_, re, err := dl.GetGatewayStatus(&directlinkv1.GetGatewayStatusOptions{ID: &infra.PowerVSCloudConnectionID, Type: &gwType})
+			_, resp, err := dl.GetGatewayStatus(&directlinkv1.GetGatewayStatusOptions{ID: &infra.PowerVSCloudConnectionID, Type: &gatewayStatusType})
 			if err != nil {
 				return
 			}
 
-			log.Log.WithName(infra.ID).Info("DL", "BGP Status", re.Result)
+			log.Log.WithName(infra.ID).Info("Status from Direct Link", "BGP", resp.Result)
 
 			return
 		}

@@ -188,12 +188,12 @@ func (options *DestroyInfraOptions) DestroyInfra(infra *Infra) (err error) {
 	}
 
 	if !skipPowerVs {
-		/*
-			err = destroyPowerVsDhcpServer(infra, powerVsCloudInstanceID, session, options.InfraID)
-			if err != nil {
-				errL = append(errL, fmt.Errorf("error destroying powervs dhcp server: %w", err))
-				log.Log.WithName(options.InfraID).Error(err, "error destroying powervs dhcp server")
-			}*/
+
+		err = destroyPowerVsDhcpServer(infra, powerVsCloudInstanceID, session, options.InfraID)
+		if err != nil {
+			errL = append(errL, fmt.Errorf("error destroying powervs dhcp server: %w", err))
+			log.Log.WithName(options.InfraID).Error(err, "error destroying powervs dhcp server")
+		}
 
 		err = destroyPowerVsCloudInstance(powerVsCloudInstanceID, options.InfraID)
 		if err != nil {
