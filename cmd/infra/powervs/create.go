@@ -314,27 +314,26 @@ func getIAMAuth() *core.IamAuthenticator {
 	}
 }
 
-// setupBaseDomain get domain id and crn of given base domain
-// TODO(dharaneeshvrd): Currently, resource group provided will be considered only for VPC and PowerVS. Need to look at utilising a common resource group in future for CIS service too and use it while filtering the list
-func (infra *Infra) setupBaseDomain(options *CreateInfraOptions) (err error) {
+// getCisDomainDetails getting CIS domain details like CRN and domainID
+func getCisDomainDetails(baseDomain string) (string, string, error) {
+	var CisCRN, CisDomainID string
 	rcv2, err := resourcecontrollerv2.NewResourceControllerV2(&resourcecontrollerv2.ResourceControllerV2Options{
 		Authenticator: getIAMAuth(),
 		URL:           getCustomEndpointUrl(platformService, resourcecontrollerv2.DefaultServiceURL),
 	})
 	if err != nil {
-		return
+		return "", "", err
 	}
 
 	if rcv2 == nil {
-		return fmt.Errorf("unable to get resource controller")
+		return "", "", fmt.Errorf("unable to get resource controller")
 	}
 
 	// getting list of resource instance of type cis
 	serviceID, _, err := getServiceInfo(cisService, "")
 
 	if err != nil {
-		err = fmt.Errorf("error retrieving cis service %w", err)
-		return
+		return "", "", fmt.Errorf("error retrieving cis service %w", err)
 	}
 
 	f := func(start string) (isDone bool, nextUrl string, err error) {
@@ -375,9 +374,9 @@ func (infra *Infra) setupBaseDomain(options *CreateInfraOptions) (err error) {
 
 			if zoneList != nil {
 				for _, zone := range zoneList.Result {
-					if *zone.Name == options.BaseDomain {
-						infra.CisCrn = *resource.CRN
-						infra.CisDomainID = *zone.ID
+					if *zone.Name == baseDomain {
+						CisCRN = *resource.CRN
+						CisDomainID = *zone.ID
 						isDone = true
 						return
 					}
@@ -396,8 +395,18 @@ func (infra *Infra) setupBaseDomain(options *CreateInfraOptions) (err error) {
 	}
 
 	err = pagingHelper(f)
+
+	return CisCRN, CisDomainID, nil
+}
+
+// setupBaseDomain get domain id and crn of given base domain
+// TODO(dharaneeshvrd): Currently, resource group provided will be considered only for VPC and PowerVS. Need to look at utilising a common resource group in future for CIS service too and use it while filtering the list
+func (infra *Infra) setupBaseDomain(options *CreateInfraOptions) error {
+	var err error
+	infra.CisCrn, infra.CisDomainID, err = getCisDomainDetails(options.BaseDomain)
+
 	if err != nil {
-		return
+		return fmt.Errorf("error retrieving cis domain details %w", err)
 	}
 
 	if infra.CisCrn == "" || infra.CisDomainID == "" {
@@ -405,7 +414,7 @@ func (infra *Infra) setupBaseDomain(options *CreateInfraOptions) (err error) {
 	}
 
 	log(options.InfraID).Info("BaseDomain Info Ready", "CRN", infra.CisCrn, "DomainID", infra.CisDomainID)
-	return
+	return nil
 }
 
 // getServiceInfo retrieving id info of given service and service plan

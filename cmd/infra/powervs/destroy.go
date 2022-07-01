@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/IBM-Cloud/power-go-client/power/models"
+	"github.com/IBM/networking-go-sdk/dnsrecordsv1"
 	"io/ioutil"
 	"k8s.io/apimachinery/pkg/util/errors"
 	"strings"
@@ -31,12 +32,19 @@ const (
 	powerVSJobCompletedState         = "completed"
 	powerVSJobFailedState            = "failed"
 	dhcpInstanceShutOffState         = "SHUTOFF"
+
+	// Resource name prefix
+	vpcLbNamePrefix = "kube"
 )
 
 // DestroyInfraOptions command line options to destroy infra created in IBMCloud for Hypershift
 type DestroyInfraOptions struct {
+	Name                   string
 	InfraID                string
 	InfrastructureJson     string
+	BaseDomain             string
+	CisCRN                 string
+	CisDomainID            string
 	ResourceGroup          string
 	PowerVSRegion          string
 	PowerVSZone            string
@@ -57,8 +65,10 @@ func NewDestroyCommand() *cobra.Command {
 
 	opts := DestroyInfraOptions{}
 
+	cmd.Flags().StringVar(&opts.Name, "name", opts.Name, "Name of the cluster")
 	cmd.Flags().StringVar(&opts.InfraID, "infra-id", opts.InfraID, "Cluster ID with which to tag IBM Cloud resources")
 	cmd.Flags().StringVar(&opts.InfrastructureJson, "infra-json", opts.InfrastructureJson, "Result of ./hypershift infra create powervs")
+	cmd.Flags().StringVar(&opts.BaseDomain, "base-domain", opts.BaseDomain, "The ingress base domain of the cluster")
 	cmd.Flags().StringVar(&opts.ResourceGroup, "resource-group", opts.ResourceGroup, "IBM Cloud Resource Group")
 	cmd.Flags().StringVar(&opts.VpcRegion, "vpc-region", opts.VpcRegion, "IBM Cloud VPC Infra Region")
 	cmd.Flags().StringVar(&opts.Vpc, "vpc", opts.Vpc, "IBM Cloud VPC")
@@ -136,6 +146,12 @@ func (options *DestroyInfraOptions) DestroyInfra(infra *Infra) (err error) {
 	var skipPowerVs bool
 	errL := make([]error, 0)
 
+	err = deleteDNSRecords(options)
+	if err != nil {
+		errL = append(errL, fmt.Errorf("error deleting dns record from cis domain: %w", err))
+		log(options.InfraID).Error(err, "error deleting dns record from cis domain")
+	}
+
 	// getting the powervs cloud instance id
 	if infra != nil && infra.PowerVSCloudInstanceID != "" {
 		powerVsCloudInstanceID = infra.PowerVSCloudInstanceID
@@ -204,6 +220,50 @@ func (options *DestroyInfraOptions) DestroyInfra(infra *Infra) (err error) {
 	}
 
 	return
+}
+
+// deleteDNSRecords deletes DNS records from CIS domain
+func deleteDNSRecords(options *DestroyInfraOptions) error {
+
+	if options.CisCRN == "" || options.CisDomainID == "" {
+		if options.BaseDomain == "" || options.Name == "" {
+			log(options.InfraID).Info("Skipping DNS record deletion. DNS Record deletion requires --name & --base-domain")
+			return nil
+		} else {
+			var err error
+			options.CisCRN, options.CisDomainID, err = getCisDomainDetails(options.BaseDomain)
+			if err != nil {
+				return fmt.Errorf("error retrieving cis domain details %w", err)
+			}
+		}
+	}
+
+	dnsRecordsV1, err := dnsrecordsv1.NewDnsRecordsV1(&dnsrecordsv1.DnsRecordsV1Options{Crn: &options.CisCRN, ZoneIdentifier: &options.CisDomainID, Authenticator: getIAMAuth()})
+	if err != nil {
+		return fmt.Errorf("error creating dns record service %w", err)
+	}
+
+	recordName := fmt.Sprintf("*.apps.%s.%s", options.Name, options.BaseDomain)
+	listDnsRecordsOpt := &dnsrecordsv1.ListAllDnsRecordsOptions{Name: &recordName}
+
+	dnsRecordsL, _, err := dnsRecordsV1.ListAllDnsRecords(listDnsRecordsOpt)
+	if err != nil {
+		return err
+	}
+
+	if len(dnsRecordsL.Result) <= 0 {
+		log(options.InfraID).Info("No matching DNS Records present in CIS Domain")
+		return nil
+	}
+
+	record := dnsRecordsL.Result[0]
+	log(options.InfraID).Info("Deleting DNS", "record", recordName)
+	deleteRecordOpt := &dnsrecordsv1.DeleteDnsRecordOptions{DnsrecordIdentifier: record.ID}
+	if _, _, err = dnsRecordsV1.DeleteDnsRecord(deleteRecordOpt); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // destroyPowerVsDhcpServer destroying powervs dhcp server
@@ -490,7 +550,7 @@ func deleteVpc(id string, v1 *vpcv1.VpcV1, infraID string) (err error) {
 // destroyVpcSubnet destroying vpc subnet
 func destroyVpcSubnet(options *DestroyInfraOptions, infra *Infra, resourceGroupID string, v1 *vpcv1.VpcV1, infraID string) (err error) {
 	if infra != nil && infra.VpcSubnetID != "" {
-		return deleteVpcSubnet(infra.VpcSubnetID, v1, infraID)
+		return deleteVpcSubnet(infra.VpcSubnetID, v1, options)
 	}
 
 	f := func(start string) (isDone bool, nextUrl string, err error) {
@@ -514,7 +574,7 @@ func destroyVpcSubnet(options *DestroyInfraOptions, infra *Infra, resourceGroupI
 
 		for _, subnet := range subnetL.Subnets {
 			if *subnet.VPC.Name == vpcName && strings.Contains(*subnet.Zone.Name, options.VpcRegion) {
-				err = deleteVpcSubnet(*subnet.ID, v1, infraID)
+				err = deleteVpcSubnet(*subnet.ID, v1, options)
 				isDone = true
 				return
 			}
@@ -533,9 +593,16 @@ func destroyVpcSubnet(options *DestroyInfraOptions, infra *Infra, resourceGroupI
 	return pagingHelper(f)
 }
 
-// deleteVpcSubnet deletes the subnet id passed
-func deleteVpcSubnet(id string, v1 *vpcv1.VpcV1, infraID string) (err error) {
-	log(infraID).Info("Deleting VPC subnet", "subnetId", id)
+// deleteVpcSubnet deletes the subnet id passed and LB attached to it
+func deleteVpcSubnet(id string, v1 *vpcv1.VpcV1, options *DestroyInfraOptions) (err error) {
+	// deleting the load balancer before proceeding to subnet deletion, since LB is an attached resource to the subnet
+	if err = destroyVpcLB(options, id, v1); err != nil {
+		log(options.InfraID).Error(err, "error destroying VPC Load Balancer")
+		return fmt.Errorf("error destroying VPC Load Balancer %w", err)
+	}
+
+	log(options.InfraID).Info("Deleting VPC subnet", "subnetId", id)
+
 	_, err = v1.DeleteSubnet(&vpcv1.DeleteSubnetOptions{ID: &id})
 
 	if err != nil {
@@ -545,6 +612,78 @@ func deleteVpcSubnet(id string, v1 *vpcv1.VpcV1, infraID string) (err error) {
 	f := func() (cond bool, err error) {
 		_, _, err = v1.GetSubnet(&vpcv1.GetSubnetOptions{ID: &id})
 		if err != nil && strings.Contains(err.Error(), "Subnet not found") {
+			err = nil
+			cond = true
+			return
+		}
+		return
+	}
+
+	err = wait.PollImmediate(pollingInterval, vpcResourceDeletionTimeout, f)
+	return
+}
+
+// destroyVpcLB destroys VPC Load Balancer
+func destroyVpcLB(options *DestroyInfraOptions, subnetID string, v1 *vpcv1.VpcV1) error {
+
+	f := func(start string) (isDone bool, nextUrl string, err error) {
+
+		listLBOpt := vpcv1.ListLoadBalancersOptions{}
+		if start != "" {
+			listLBOpt.Start = &start
+		}
+		loadBalancerL, _, err := v1.ListLoadBalancers(&listLBOpt)
+		if err != nil {
+			return
+		}
+
+		if loadBalancerL == nil || len(loadBalancerL.LoadBalancers) <= 0 {
+			log(options.InfraID).Info("no load balancers available")
+			isDone = true
+			return
+		}
+
+		// Consider deleting LB which starting with 'kube-<cluster-name>'
+		// Which are provisioned by cloud controller manager. Below is the code ref for the naming convention.
+		// https://github.com/openshift/cloud-provider-powervs/blob/master/pkg/vpcctl/vpc_provider.go#L235
+		lbName := fmt.Sprintf("%s-%s", vpcLbNamePrefix, options.Name)
+
+		for _, lb := range loadBalancerL.LoadBalancers {
+			for _, subnet := range lb.Subnets {
+				if *subnet.ID == subnetID {
+					if strings.Contains(*lb.Name, lbName) {
+						err = deleteVpcLB(*lb.ID, v1, options.InfraID)
+						if err != nil {
+							return
+						}
+					}
+				}
+			}
+		}
+
+		// For paging over next set of resources getting the start token and passing it for next iteration
+		if loadBalancerL.Next != nil && *loadBalancerL.Next.Href != "" {
+			nextUrl = *loadBalancerL.Next.Href
+			return
+		}
+
+		isDone = true
+		return
+	}
+
+	return pagingHelper(f)
+}
+
+// deleteVpcLB deletes the load balancer id passed
+func deleteVpcLB(id string, v1 *vpcv1.VpcV1, infraID string) (err error) {
+	log(infraID).Info("Deleting VPC LoadBalancer:", "id", id)
+	if _, err = v1.DeleteLoadBalancer(&vpcv1.DeleteLoadBalancerOptions{ID: &id}); err != nil {
+		return err
+	}
+
+	f := func() (cond bool, err error) {
+		_, _, err = v1.GetLoadBalancer(&vpcv1.GetLoadBalancerOptions{ID: &id})
+		if err != nil && strings.Contains(err.Error(), "cannot be found") {
 			err = nil
 			cond = true
 			return
