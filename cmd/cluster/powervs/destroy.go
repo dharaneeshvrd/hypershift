@@ -86,11 +86,11 @@ func destroyPlatformSpecifics(ctx context.Context, o *core.DestroyOptions) error
 		Name:          o.Name,
 		InfraID:       o.InfraID,
 		BaseDomain:    o.PowerVSPlatform.BaseDomain,
-		CisCRN:        o.PowerVSPlatform.CISCRN,
-		CisDomainID:   o.PowerVSPlatform.CISDomainID,
+		CISCRN:        o.PowerVSPlatform.CISCRN,
+		CISDomainID:   o.PowerVSPlatform.CISDomainID,
 		ResourceGroup: o.PowerVSPlatform.ResourceGroup,
 		PowerVSRegion: o.PowerVSPlatform.Region,
 		PowerVSZone:   o.PowerVSPlatform.Zone,
-		VpcRegion:     o.PowerVSPlatform.VPCRegion,
+		VPCRegion:     o.PowerVSPlatform.VPCRegion,
 	}).Run(ctx)
 }

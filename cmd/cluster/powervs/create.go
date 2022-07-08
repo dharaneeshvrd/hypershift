@@ -136,8 +136,8 @@ func applyPlatformSpecificsValues(ctx context.Context, exampleOptions *apifixtur
 			PowerVSZone:            opts.PowerVSPlatform.Zone,
 			PowerVSCloudInstanceID: opts.PowerVSPlatform.CloudInstanceID,
 			PowerVSCloudConnection: opts.PowerVSPlatform.CloudConnection,
-			VpcRegion:              opts.PowerVSPlatform.VpcRegion,
-			Vpc:                    opts.PowerVSPlatform.Vpc,
+			VPCRegion:              opts.PowerVSPlatform.VpcRegion,
+			VPC:                    opts.PowerVSPlatform.Vpc,
 		}
 		infra = &powervsinfra.Infra{}
 		err = infra.SetupInfra(opt)
@@ -148,8 +148,8 @@ func applyPlatformSpecificsValues(ctx context.Context, exampleOptions *apifixtur
 
 	exampleOptions.BaseDomain = opts.BaseDomain
 	exampleOptions.ComputeCIDR = defaultCIDRBlock
-	exampleOptions.PrivateZoneID = infra.CisDomainID
-	exampleOptions.PublicZoneID = infra.CisDomainID
+	exampleOptions.PrivateZoneID = infra.CISDomainID
+	exampleOptions.PublicZoneID = infra.CISDomainID
 	exampleOptions.InfraID = infraID
 	exampleOptions.PowerVS = &apifixtures.ExamplePowerVSOptions{
 		ApiKey:          opts.PowerVSPlatform.APIKey,
@@ -157,13 +157,13 @@ func applyPlatformSpecificsValues(ctx context.Context, exampleOptions *apifixtur
 		ResourceGroup:   opts.PowerVSPlatform.ResourceGroup,
 		Region:          opts.PowerVSPlatform.Region,
 		Zone:            opts.PowerVSPlatform.Zone,
-		CISInstanceCRN:  infra.CisCrn,
+		CISInstanceCRN:  infra.CISCRN,
 		CloudInstanceID: infra.PowerVSCloudInstanceID,
 		Subnet:          infra.PowerVSDhcpSubnet,
 		SubnetID:        infra.PowerVSDhcpSubnetID,
 		VpcRegion:       opts.PowerVSPlatform.VpcRegion,
-		Vpc:             infra.VpcName,
-		VpcSubnet:       infra.VpcSubnetName,
+		Vpc:             infra.VPCName,
+		VpcSubnet:       infra.VPCSubnetName,
 		SysType:         opts.PowerVSPlatform.SysType,
 		ProcType:        opts.PowerVSPlatform.ProcType,
 		Processors:      opts.PowerVSPlatform.Processors,
