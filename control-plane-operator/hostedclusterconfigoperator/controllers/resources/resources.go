@@ -1396,6 +1396,24 @@ func (r *reconciler) ensureIngressControllersRemoved(ctx context.Context) (bool,
 	if len(errs) > 0 {
 		return false, fmt.Errorf("failed to delete ingress controllers: %w", errors.NewAggregate(errs))
 	}
+
+	log.Info("Trying to list pod under openshift-ingress namespace")
+	routerPods := &corev1.PodList{}
+	if err := r.uncachedClient.List(ctx, routerPods, &client.ListOptions{Namespace: "openshift-ingress"}); err != nil {
+		return false, fmt.Errorf("failed to list pods under openshift-ingress namespace: %w", err)
+	}
+	log.Info("Pod", "list", routerPods.Items)
+	for i := range routerPods.Items {
+		rp := &routerPods.Items[i]
+		log.Info("Iter", "po", rp)
+		if !rp.DeletionTimestamp.IsZero() {
+			log.Info("Force deleting router", "pod", client.ObjectKeyFromObject(rp).String())
+			if err := r.client.Delete(ctx, rp, &client.DeleteOptions{GracePeriodSeconds: pointer.Int64Ptr(1)}); err != nil {
+				errs = append(errs, fmt.Errorf("failed to force delete %s", client.ObjectKeyFromObject(rp).String()))
+			}
+		}
+	}
+
 	return false, nil
 }
 
