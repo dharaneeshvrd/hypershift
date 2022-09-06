@@ -1408,7 +1408,7 @@ func (r *reconciler) ensureIngressControllersRemoved(ctx context.Context) (bool,
 		log.Info("Iter", "po", rp)
 		if !rp.DeletionTimestamp.IsZero() {
 			log.Info("Force deleting router", "pod", client.ObjectKeyFromObject(rp).String())
-			if err := r.client.Delete(ctx, rp, &client.DeleteOptions{GracePeriodSeconds: pointer.Int64Ptr(1)}); err != nil {
+			if err := r.client.Delete(ctx, rp, &client.DeleteOptions{GracePeriodSeconds: pointer.Int64Ptr(0)}); err != nil {
 				errs = append(errs, fmt.Errorf("failed to force delete %s", client.ObjectKeyFromObject(rp).String()))
 			}
 		}
