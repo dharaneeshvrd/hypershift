@@ -2,6 +2,7 @@ package ingressoperator
 
 import (
 	"fmt"
+	"github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/konnectivity"
 
 	hyperv1 "github.com/openshift/hypershift/api/v1alpha1"
 	"github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/kas"
@@ -125,19 +126,18 @@ func ReconcileDeployment(dep *appsv1.Deployment, params Params, apiPort *int32) 
 			{Name: "IMAGE", Value: params.HAProxyRouterImage},
 			{Name: "CANARY_IMAGE", Value: params.IngressOperatorImage},
 			{Name: "KUBECONFIG", Value: "/etc/kubernetes/kubeconfig"},
-			/*
-				{
-					Name:  "HTTP_PROXY",
-					Value: fmt.Sprintf("socks5://127.0.0.1:%d", konnectivity.KonnectivityServerLocalPort),
-				},
-				{
-					Name:  "HTTPS_PROXY",
-					Value: fmt.Sprintf("socks5://127.0.0.1:%d", konnectivity.KonnectivityServerLocalPort),
-				},
-				{
-					Name:  "NO_PROXY",
-					Value: manifests.KubeAPIServerService("").Name,
-				},*/
+			{
+				Name:  "HTTP_PROXY",
+				Value: fmt.Sprintf("socks5://127.0.0.1:%d", konnectivity.KonnectivityServerLocalPort),
+			},
+			{
+				Name:  "HTTPS_PROXY",
+				Value: fmt.Sprintf("socks5://127.0.0.1:%d", konnectivity.KonnectivityServerLocalPort),
+			},
+			{
+				Name:  "NO_PROXY",
+				Value: manifests.KubeAPIServerService("").Name,
+			},
 		},
 		Name:            ingressOperatorContainerName,
 		Image:           params.IngressOperatorImage,
