@@ -2,10 +2,11 @@ package ingressoperator
 
 import (
 	"fmt"
-	"github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/konnectivity"
+	"strings"
 
 	hyperv1 "github.com/openshift/hypershift/api/v1alpha1"
 	"github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/kas"
+	"github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/konnectivity"
 	"github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/manifests"
 	"github.com/openshift/hypershift/support/config"
 	"github.com/openshift/hypershift/support/proxy"
@@ -105,6 +106,7 @@ func ReconcileDeployment(dep *appsv1.Deployment, params Params, apiPort *int32) 
 		hyperv1.ControlPlaneComponent: operatorName,
 	}
 
+	noProxy := []string{manifests.KubeAPIServerService("").Name, "iam.cloud.ibm.com", "iam.test.cloud.ibm.com", "api.cis.cloud.ibm.com"}
 	dep.Spec.Template.Spec.AutomountServiceAccountToken = utilpointer.BoolPtr(false)
 	dep.Spec.Template.Spec.Containers = []corev1.Container{{
 		Command: []string{
@@ -136,7 +138,7 @@ func ReconcileDeployment(dep *appsv1.Deployment, params Params, apiPort *int32) 
 			},
 			{
 				Name:  "NO_PROXY",
-				Value: manifests.KubeAPIServerService("").Name,
+				Value: strings.Join(noProxy, ","),
 			},
 		},
 		Name:            ingressOperatorContainerName,
