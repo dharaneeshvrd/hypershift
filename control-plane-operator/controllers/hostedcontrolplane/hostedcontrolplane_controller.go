@@ -2170,7 +2170,7 @@ func (r *HostedControlPlaneReconciler) reconcileIngressOperator(ctx context.Cont
 
 	deployment := manifests.IngressOperatorDeployment(hcp.Namespace)
 	if _, err := createOrUpdate(ctx, r, deployment, func() error {
-		ingressoperator.ReconcileDeployment(deployment, p, util.APIPort(hcp))
+		ingressoperator.ReconcileDeployment(deployment, p, util.APIPort(hcp), hcp.Spec.Platform.Type)
 		return nil
 	}); err != nil {
 		return fmt.Errorf("failed to reconcile ingressoperator deployment: %w", err)
