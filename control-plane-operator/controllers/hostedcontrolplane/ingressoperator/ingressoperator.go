@@ -88,7 +88,7 @@ func NewParams(hcp *hyperv1.HostedControlPlane, version string, images map[strin
 	return p
 }
 
-func ReconcileDeployment(dep *appsv1.Deployment, params Params, apiPort *int32) {
+func ReconcileDeployment(dep *appsv1.Deployment, params Params, apiPort *int32, platform hyperv1.PlatformType) {
 	operatorName := "ingress-operator"
 	dep.Spec.Replicas = utilpointer.Int32(1)
 	dep.Spec.Selector = &metav1.LabelSelector{MatchLabels: map[string]string{"name": operatorName}}
@@ -105,8 +105,11 @@ func ReconcileDeployment(dep *appsv1.Deployment, params Params, apiPort *int32) 
 		"app":                         operatorName,
 		hyperv1.ControlPlaneComponent: operatorName,
 	}
+	noProxy := []string{manifests.KubeAPIServerService("").Name,}
+	if platform == hyperv1.PowerVSPlatform {
+		noProxy = append(noProxy, "iam.cloud.ibm.com", "iam.test.cloud.ibm.com", "api.cis.cloud.ibm.com")
+	}
 
-	noProxy := []string{manifests.KubeAPIServerService("").Name, "iam.cloud.ibm.com", "iam.test.cloud.ibm.com", "api.cis.cloud.ibm.com"}
 	dep.Spec.Template.Spec.AutomountServiceAccountToken = utilpointer.BoolPtr(false)
 	dep.Spec.Template.Spec.Containers = []corev1.Container{{
 		Command: []string{
