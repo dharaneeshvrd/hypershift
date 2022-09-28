@@ -22,6 +22,7 @@ import (
 	"github.com/IBM/networking-go-sdk/dnsrecordsv1"
 	"github.com/IBM/networking-go-sdk/zonesv1"
 	"github.com/IBM/platform-services-go-sdk/globalcatalogv1"
+	"github.com/IBM/platform-services-go-sdk/globaltaggingv1"
 	"github.com/IBM/platform-services-go-sdk/iamidentityv1"
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
 	"github.com/IBM/platform-services-go-sdk/resourcemanagerv2"
@@ -34,7 +35,7 @@ var cloudApiKey string
 
 const (
 	// Resource name suffix for creation
-	cloudInstanceNameSuffix = "nodepool"
+	cloudInstanceNameSuffix = "pvs"
 	vpcNameSuffix           = "vpc"
 	vpcSubnetNameSuffix     = "vpc-subnet"
 	cloudConnNameSuffix     = "cc"
@@ -155,10 +156,12 @@ type Infra struct {
 	CISDomainID       string            `json:"cisDomainID"`
 	ResourceGroupID   string            `json:"resourceGroupID"`
 	CloudInstanceID   string            `json:"cloudInstanceID"`
+	CloudInstanceCRN  string            `json:"cloudInstanceCRN"`
 	DHCPSubnet        string            `json:"dhcpSubnet"`
 	DHCPSubnetID      string            `json:"dhcpSubnetID"`
 	DHCPID            string            `json:"dhcpID"`
 	CloudConnectionID string            `json:"cloudConnectionID"`
+	DirectLinkCRN     string            `json:"directLinkCRN"`
 	VPCName           string            `json:"vpcName"`
 	VPCID             string            `json:"vpcID"`
 	VPCCRN            string            `json:"vpcCrn"`
@@ -355,6 +358,9 @@ func (infra *Infra) SetupInfra(options *CreateInfraOptions) error {
 		return fmt.Errorf("cloud connection is not up: %w", err)
 	}
 
+	if err = infra.addTags(); err != nil {
+		return fmt.Errorf("error attaching tags: %w", err)
+	}
 	log(options.InfraID).Info("Setup infra completed in", "duration", time.Since(startTime).String())
 	return nil
 }
@@ -767,6 +773,7 @@ func (infra *Infra) setupPowerVSCloudInstance(options *CreateInfraOptions) error
 
 	if cloudInstance != nil {
 		infra.CloudInstanceID = *cloudInstance.GUID
+		infra.CloudInstanceCRN = *cloudInstance.CRN
 		infra.Stats.CloudInstance.Status = *cloudInstance.State
 	}
 
@@ -1039,6 +1046,7 @@ func (infra *Infra) setupPowerVSCloudConnection(options *CreateInfraOptions, ses
 	}
 	if cloudConnID != "" {
 		infra.CloudConnectionID = cloudConnID
+
 	}
 
 	if infra.CloudConnectionID == "" {
@@ -1306,6 +1314,50 @@ func (infra *Infra) isCloudConnectionReady(options *CreateInfraOptions, session 
 		return fmt.Errorf("could not update cloud connection status, cloud connection is nil")
 	}
 
+	gw, _, err := directLinkV1.GetGateway(&directlinkv1.GetGatewayOptions{ID: &infra.CloudConnectionID})
+	if err != nil {
+		return fmt.Errorf("error getting gateway: %w", err)
+	}
+	if gw != nil {
+		infra.DirectLinkCRN = *gw.Crn
+	}
+
 	log(infra.ID).Info("PowerVS Cloud Connection ready")
+	return nil
+}
+
+func (infra *Infra) addTags() error {
+	gtag, err := globaltaggingv1.NewGlobalTaggingV1(&globaltaggingv1.GlobalTaggingV1Options{Authenticator: getIAMAuth()})
+	if err != nil {
+		return err
+	}
+
+	_, _, err = gtag.AttachTag(&globaltaggingv1.AttachTagOptions{Resources: []globaltaggingv1.Resource{
+		{ResourceID: &infra.CloudInstanceCRN}, {ResourceID: &infra.VPCCRN}, {ResourceID: &infra.DirectLinkCRN},
+	},
+		TagNames: []string{fmt.Sprintf("kubernetes.io-cluster-%s:owned", infra.ID), fmt.Sprintf("Name:%s-%s", infra.ID, cloudInstanceNameSuffix)},
+	})
+	if err != nil {
+		return fmt.Errorf("error attaching tag to cloud instance: %w", err)
+	}
+
+	_, _, err = gtag.AttachTag(&globaltaggingv1.AttachTagOptions{Resources: []globaltaggingv1.Resource{
+		{ResourceID: &infra.CloudInstanceCRN}, {ResourceID: &infra.VPCCRN}, {ResourceID: &infra.DirectLinkCRN},
+	},
+		TagNames: []string{fmt.Sprintf("kubernetes.io-cluster-%v:owned", infra.ID), fmt.Sprintf("Name:%s-%s", infra.ID, vpcNameSuffix)},
+	})
+	if err != nil {
+		return fmt.Errorf("error attaching tag to vpc: %w", err)
+	}
+
+	_, _, err = gtag.AttachTag(&globaltaggingv1.AttachTagOptions{Resources: []globaltaggingv1.Resource{
+		{ResourceID: &infra.CloudInstanceCRN}, {ResourceID: &infra.VPCCRN}, {ResourceID: &infra.DirectLinkCRN},
+	},
+		TagNames: []string{fmt.Sprintf("kubernetes.io-cluster-%v:owned", infra.ID), fmt.Sprintf("Name:%s-%s", infra.ID, cloudConnNameSuffix)},
+	})
+	if err != nil {
+		return fmt.Errorf("error attaching tag direct link: %w", err)
+	}
+
 	return nil
 }
