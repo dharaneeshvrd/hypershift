@@ -22,6 +22,7 @@ import (
 	"github.com/IBM/networking-go-sdk/dnsrecordsv1"
 	"github.com/IBM/networking-go-sdk/zonesv1"
 	"github.com/IBM/platform-services-go-sdk/globalcatalogv1"
+	"github.com/IBM/platform-services-go-sdk/globaltaggingv1"
 	"github.com/IBM/platform-services-go-sdk/iamidentityv1"
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
 	"github.com/IBM/platform-services-go-sdk/resourcemanagerv2"
@@ -34,9 +35,9 @@ var cloudApiKey string
 
 const (
 	// Resource name suffix for creation
-	cloudInstanceNameSuffix = "nodepool"
+	cloudInstanceNameSuffix = "pvs"
 	vpcNameSuffix           = "vpc"
-	vpcSubnetNameSuffix     = "vpc-subnet"
+	vpcSubnetNameSuffix     = "vpc-sn"
 	cloudConnNameSuffix     = "cc"
 
 	// Default cloud connection speed
@@ -129,6 +130,8 @@ func (d *TimeDuration) UnmarshalJSON(b []byte) error {
 	return err
 }
 
+var clustertag = func(infraID string) string { return fmt.Sprintf("kubernetes.io-cluster-%s:owned", infraID) }
+
 type CreateStat struct {
 	Duration TimeDuration `json:"duration"`
 	Status   string       `json:"status,omitempty"`
@@ -157,10 +160,12 @@ type Infra struct {
 	CISDomainID       string            `json:"cisDomainID"`
 	ResourceGroupID   string            `json:"resourceGroupID"`
 	CloudInstanceID   string            `json:"cloudInstanceID"`
+	CloudInstanceCRN  string            `json:"cloudInstanceCRN"`
 	DHCPSubnet        string            `json:"dhcpSubnet"`
 	DHCPSubnetID      string            `json:"dhcpSubnetID"`
 	DHCPID            string            `json:"dhcpID"`
 	CloudConnectionID string            `json:"cloudConnectionID"`
+	DirectLinkCRN     string            `json:"directLinkCRN"`
 	VPCName           string            `json:"vpcName"`
 	VPCID             string            `json:"vpcID"`
 	VPCCRN            string            `json:"vpcCrn"`
@@ -356,6 +361,10 @@ func (infra *Infra) SetupInfra(ctx context.Context, options *CreateInfraOptions)
 
 	if err = infra.isCloudConnectionReady(ctx, options, session); err != nil {
 		return fmt.Errorf("cloud connection is not up: %w", err)
+	}
+
+	if err = infra.addTags(); err != nil {
+		return fmt.Errorf("error attaching tags: %w", err)
 	}
 
 	log(options.InfraID).Info("Setup infra completed in", "duration", time.Since(startTime).String())
@@ -775,6 +784,7 @@ func (infra *Infra) setupPowerVSCloudInstance(options *CreateInfraOptions) error
 
 	if cloudInstance != nil {
 		infra.CloudInstanceID = *cloudInstance.GUID
+		infra.CloudInstanceCRN = *cloudInstance.CRN
 		infra.Stats.CloudInstance.Status = *cloudInstance.State
 	}
 
@@ -1333,6 +1343,52 @@ func (infra *Infra) isCloudConnectionReady(ctx context.Context, options *CreateI
 		return fmt.Errorf("could not update cloud connection status, cloud connection is nil")
 	}
 
+	gw, _, err := directLinkV1.GetGateway(&directlinkv1.GetGatewayOptions{ID: &infra.CloudConnectionID})
+	if err != nil {
+		return fmt.Errorf("error getting gateway: %w", err)
+	}
+	if gw != nil {
+		infra.DirectLinkCRN = *gw.Crn
+	}
+
 	log(infra.ID).Info("PowerVS Cloud Connection ready")
+	return nil
+}
+
+// addTags adding tags to cloud resources
+func (infra *Infra) addTags() error {
+	gtag, err := globaltaggingv1.NewGlobalTaggingV1(&globaltaggingv1.GlobalTaggingV1Options{Authenticator: getIAMAuth()})
+	if err != nil {
+		return err
+	}
+
+	attachTag := func(resourceId *string, resourceName string) error {
+		_, _, err = gtag.AttachTag(&globaltaggingv1.AttachTagOptions{Resources: []globaltaggingv1.Resource{
+			{ResourceID: resourceId},
+		},
+			TagNames: []string{clustertag(infra.ID), fmt.Sprintf("Name:%s", resourceName)},
+		})
+		if err != nil {
+			return fmt.Errorf("error attaching tag to %s: %w", resourceName, err)
+		}
+
+		return nil
+	}
+
+	err = attachTag(&infra.CloudInstanceCRN, fmt.Sprintf("%s-%s", infra.ID, cloudInstanceNameSuffix))
+	if err != nil {
+		return err
+	}
+
+	err = attachTag(&infra.VPCCRN, fmt.Sprintf("%s-%s", infra.ID, vpcNameSuffix))
+	if err != nil {
+		return err
+	}
+
+	err = attachTag(&infra.DirectLinkCRN, fmt.Sprintf("%s-%s", infra.ID, cloudConnNameSuffix))
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
