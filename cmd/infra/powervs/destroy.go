@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/IBM-Cloud/power-go-client/power/models"
 	"github.com/IBM/networking-go-sdk/dnsrecordsv1"
+	"github.com/IBM/platform-services-go-sdk/globalsearchv2"
 	"io/ioutil"
 	"k8s.io/apimachinery/pkg/util/errors"
 	"strings"
@@ -168,6 +169,26 @@ func (options *DestroyInfraOptions) DestroyInfra(ctx context.Context, infra *Inf
 		log(options.InfraID).Error(err, "error deleting secrets")
 	}
 
+	gSearch, err := globalsearchv2.NewGlobalSearchV2(&globalsearchv2.GlobalSearchV2Options{Authenticator: getIAMAuth()})
+	if err != nil {
+		log(options.InfraID).Error(err, "error creating instance of globalsearchv2")
+	}
+
+	log(options.InfraID).Info("infra", "infra", infra)
+
+	if infra == nil {
+		infra = &Infra{ID: options.InfraID}
+		clusterTag := fmt.Sprintf("tags:\"%v\"", clustertag(options.InfraID))
+		result, _, err := gSearch.Search(&globalsearchv2.SearchOptions{AccountID: &accountID, Query: &clusterTag, Fields: []string{"type", "resource_id"}})
+		if err != nil {
+			log(options.InfraID).Error(err, "error retrieving tagged instances")
+		}
+		if result != nil {
+			infra.extractResourceID(result)
+		}
+		log(options.InfraID).Info("inside tag filter", "infra", infra)
+	}
+
 	var powerVsCloudInstanceID string
 	var skipPowerVs bool
 
@@ -201,18 +222,22 @@ func (options *DestroyInfraOptions) DestroyInfra(ctx context.Context, infra *Inf
 	if !skipPowerVs {
 		session, err = createPowerVSSession(accountID, options.Region, options.Zone, options.Debug)
 		if err != nil {
-			return err
+			errL = append(errL, fmt.Errorf("error creating powervs session: %w", err))
+			log(options.InfraID).Error(err, "error creating powervs session")
 		}
 
-		if err = destroyPowerVsCloudConnection(ctx, options, infra, powerVsCloudInstanceID, session); err != nil {
-			errL = append(errL, fmt.Errorf("error destroying powervs cloud connection: %w", err))
-			log(options.InfraID).Error(err, "error destroying powervs cloud connection")
+		if session != nil {
+			if err = destroyPowerVsCloudConnection(ctx, options, infra, powerVsCloudInstanceID, session); err != nil {
+				errL = append(errL, fmt.Errorf("error destroying powervs cloud connection: %w", err))
+				log(options.InfraID).Error(err, "error destroying powervs cloud connection")
+			}
 		}
 	}
 
 	v1, err := createVpcService(options.VPCRegion, options.InfraID)
 	if err != nil {
-		return err
+		errL = append(errL, fmt.Errorf("error creating vpc service: %w", err))
+		log(options.InfraID).Error(err, "error creating vpc service")
 	}
 
 	if err = destroyVpcSubnet(options, infra, resourceGroupID, v1, options.InfraID); err != nil {
@@ -226,7 +251,14 @@ func (options *DestroyInfraOptions) DestroyInfra(ctx context.Context, infra *Inf
 	}
 
 	if !skipPowerVs {
-		if err = destroyPowerVsCloudInstance(ctx, options, infra, powerVsCloudInstanceID, session); err != nil {
+		if session != nil {
+			if err = destroyPowerVsDhcpServer(ctx, infra, powerVsCloudInstanceID, session, options.InfraID); err != nil {
+				errL = append(errL, fmt.Errorf("error destroying powervs dhcp server: %w", err))
+				log(options.InfraID).Error(err, "error destroying powervs dhcp server")
+			}
+		}
+
+		if err = destroyPowerVsCloudInstance(options, powerVsCloudInstanceID); err != nil {
 			errL = append(errL, fmt.Errorf("error destroying powervs cloud instance: %w", err))
 			log(options.InfraID).Error(err, "error destroying powervs cloud instance")
 		}
@@ -367,15 +399,14 @@ func destroyPowerVsDhcpServer(ctx context.Context, infra *Infra, cloudInstanceID
 }
 
 // destroyPowerVsCloudInstance destroying powervs cloud instance
-func destroyPowerVsCloudInstance(ctx context.Context, options *DestroyInfraOptions, infra *Infra, cloudInstanceID string, session *ibmpisession.IBMPISession) error {
+func destroyPowerVsCloudInstance(options *DestroyInfraOptions, cloudInstanceID string) error {
 	rcv2, err := resourcecontrollerv2.NewResourceControllerV2(&resourcecontrollerv2.ResourceControllerV2Options{Authenticator: getIAMAuth()})
 	if err != nil {
 		return err
 	}
 
 	if options.CloudInstanceID != "" {
-		// In case of user provided cloud instance delete only DHCP server
-		err = destroyPowerVsDhcpServer(ctx, infra, cloudInstanceID, session, options.InfraID)
+		return nil
 	} else {
 		for retry := 0; retry < 5; retry++ {
 			log(options.InfraID).Info("Deleting PowerVS cloud instance", "id", cloudInstanceID)
@@ -410,8 +441,8 @@ func destroyPowerVsCloudInstance(ctx context.Context, options *DestroyInfraOptio
 			}
 			log(options.InfraID).Info("Retrying cloud instance deletion ...")
 		}
+		return err
 	}
-	return err
 }
 
 // monitorPowerVsJob monitoring the submitted deletion job
@@ -441,11 +472,11 @@ func destroyPowerVsCloudConnection(ctx context.Context, options *DestroyInfraOpt
 	client := instance.NewIBMPICloudConnectionClient(ctx, session, cloudInstanceID)
 	jobClient := instance.NewIBMPIJobClient(ctx, session, cloudInstanceID)
 	var err error
+	var cloudConnectionID string
 
-	var cloudConnName string
-	// Destroying resources created for Hypershift infra creation
-	if options.CloudConnection != "" {
-		cloudConnName = options.CloudConnection
+	if infra != nil && infra.CloudConnectionID != "" {
+		cloudConnectionID = infra.CloudConnectionID
+	} else {
 		var cloudConnL *models.CloudConnections
 		cloudConnL, err = client.GetAll()
 		if err != nil || cloudConnL == nil {
@@ -457,62 +488,55 @@ func destroyPowerVsCloudConnection(ctx context.Context, options *DestroyInfraOpt
 			return nil
 		}
 
+		cloudConnName := fmt.Sprintf("%s-%s", options.InfraID, cloudConnNameSuffix)
+
 		for _, cloudConn := range cloudConnL.CloudConnections {
 			if *cloudConn.Name == cloudConnName {
-				// De-linking the VPC in cloud connection
-				var vpc *models.CloudConnectionEndpointVPC
-				var vpcL []*models.CloudConnectionVPC
-				if cloudConn.Vpc != nil && cloudConn.Vpc.Enabled {
-					for _, v := range cloudConn.Vpc.Vpcs {
-						vpcName := fmt.Sprintf("%s-%s", options.InfraID, vpcNameSuffix)
-						if (options.VPC != "" && v.Name == options.VPC) || v.Name == vpcName {
-							continue
-						}
-						vpcL = append(vpcL, v)
-					}
-					vpc.Enabled = true
-					vpc.Vpcs = vpcL
-				}
+				cloudConnectionID = *cloudConn.CloudConnectionID
+			}
+		}
+	}
 
-				if _, _, err = client.Update(*cloudConn.CloudConnectionID, &models.CloudConnectionUpdate{Name: cloudConn.Name, Vpc: vpc}); err != nil {
-					return err
-				}
+	// Destroying resources created for Hypershift infra creation
+	if options.CloudConnection != "" {
+		var cloudConn *models.CloudConnection
+		cloudConn, err = client.Get(cloudConnectionID)
+		if err != nil {
+			return err
+		}
 
-				// Removing the DHCP network from cloud connection
-				if cloudConn.Networks != nil {
-					for _, nw := range cloudConn.Networks {
-						nwName := strings.ToLower(*nw.Name)
-						if strings.Contains(nwName, "dhcp") && strings.Contains(nwName, "private") {
-							if _, _, err = client.DeleteNetwork(*cloudConn.CloudConnectionID, *nw.NetworkID); err != nil {
-								return err
-							}
-						}
+		// De-linking the VPC in cloud connection
+		var vpc *models.CloudConnectionEndpointVPC
+		var vpcL []*models.CloudConnectionVPC
+		if cloudConn.Vpc != nil && cloudConn.Vpc.Enabled {
+			for _, v := range cloudConn.Vpc.Vpcs {
+				vpcName := fmt.Sprintf("%s-%s", options.InfraID, vpcNameSuffix)
+				if (options.VPC != "" && v.Name == options.VPC) || v.Name == vpcName {
+					continue
+				}
+				vpcL = append(vpcL, v)
+			}
+			vpc.Enabled = true
+			vpc.Vpcs = vpcL
+		}
+
+		if _, _, err = client.Update(*cloudConn.CloudConnectionID, &models.CloudConnectionUpdate{Name: cloudConn.Name, Vpc: vpc}); err != nil {
+			return err
+		}
+
+		// Removing the DHCP network from cloud connection
+		if cloudConn.Networks != nil {
+			for _, nw := range cloudConn.Networks {
+				nwName := strings.ToLower(*nw.Name)
+				if strings.Contains(nwName, "dhcp") && strings.Contains(nwName, "private") {
+					if _, _, err = client.DeleteNetwork(*cloudConn.CloudConnectionID, *nw.NetworkID); err != nil {
+						return err
 					}
 				}
 			}
 		}
 	} else {
-		if infra != nil && infra.CloudConnectionID != "" {
-			return deletePowerVsCloudConnection(options, infra.CloudConnectionID, client, jobClient)
-		}
-		var cloudConnL *models.CloudConnections
-		cloudConnL, err = client.GetAll()
-		if err != nil || cloudConnL == nil {
-			return err
-		}
-
-		if len(cloudConnL.CloudConnections) < 1 {
-			log(options.InfraID).Info("No Cloud Connection available to delete in PowerVS")
-			return nil
-		}
-
-		cloudConnName = fmt.Sprintf("%s-%s", options.InfraID, cloudConnNameSuffix)
-
-		for _, cloudConn := range cloudConnL.CloudConnections {
-			if *cloudConn.Name == cloudConnName {
-				return deletePowerVsCloudConnection(options, *cloudConn.CloudConnectionID, client, jobClient)
-			}
-		}
+		return deletePowerVsCloudConnection(options, cloudConnectionID, client, jobClient)
 	}
 	return nil
 }
@@ -532,6 +556,10 @@ func deletePowerVsCloudConnection(options *DestroyInfraOptions, id string, clien
 
 // destroyVpc destroying vpc
 func destroyVpc(options *DestroyInfraOptions, infra *Infra, resourceGroupID string, v1 *vpcv1.VpcV1, infraID string) error {
+	if options.VPC != "" {
+		return nil
+	}
+
 	if infra != nil && infra.VPCID != "" {
 		return deleteVpc(infra.VPCID, v1, infraID)
 	}
@@ -715,4 +743,21 @@ func destroyVpcLB(options *DestroyInfraOptions, subnetID string, v1 *vpcv1.VpcV1
 	}
 
 	return pagingHelper(f)
+}
+
+func (infra *Infra) extractResourceID(result *globalsearchv2.ScanResult) {
+	for _, resource := range result.Items {
+		prop := resource.GetProperties()
+		fmt.Printf("%+v\n", prop)
+		fmt.Printf("%s\n", fmt.Sprintf("%v", prop["resource_id"]))
+		switch resource.GetProperty("type").(string) {
+		case powerVSResourceType:
+			crnSplit := strings.Split(*resource.CRN, ":")
+			infra.CloudInstanceID = crnSplit[len(crnSplit)-3]
+		case vpcResourceType:
+			infra.VPCID = prop["resource_id"].(string)
+		case directLinkResourceType:
+			infra.CloudConnectionID = fmt.Sprintf("%v", prop["resource_id"])
+		}
+	}
 }

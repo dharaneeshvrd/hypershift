@@ -50,6 +50,15 @@ const (
 	powerVSService     = "power-iaas"
 	powerVSServicePlan = "power-virtual-server-group"
 
+	// PVS resource type
+	powerVSResourceType = "resource-instance"
+
+	// VPC resource type
+	vpcResourceType = "vpc"
+
+	// Direct Link resource type
+	directLinkResourceType = "connect"
+
 	// Resource desired states
 	vpcAvailableState               = "available"
 	cloudInstanceActiveState        = "active"
@@ -328,6 +337,13 @@ func (infra *Infra) SetupInfra(ctx context.Context, options *CreateInfraOptions)
 		return fmt.Errorf("error setup secrets: %w", err)
 	}
 
+	defer func() {
+		err := infra.addTags()
+		if err != nil {
+			log(options.InfraID).Error(err, "error attaching tags")
+		}
+	}()
+
 	v1, err := createVpcService(options.VPCRegion, options.InfraID)
 	if err != nil {
 		return fmt.Errorf("error creating vpc service: %w", err)
@@ -361,10 +377,6 @@ func (infra *Infra) SetupInfra(ctx context.Context, options *CreateInfraOptions)
 
 	if err = infra.isCloudConnectionReady(ctx, options, session); err != nil {
 		return fmt.Errorf("cloud connection is not up: %w", err)
-	}
-
-	if err = infra.addTags(); err != nil {
-		return fmt.Errorf("error attaching tags: %w", err)
 	}
 
 	log(options.InfraID).Info("Setup infra completed in", "duration", time.Since(startTime).String())
