@@ -87,8 +87,8 @@ func NewDestroyCommand() *cobra.Command {
 	cmd.MarkFlagRequired("resource-group")
 	cmd.MarkFlagRequired("base-domain")
 	cmd.MarkFlagRequired("infra-id")
-	cmd.MarkFlagRequired("powervs-region")
-	cmd.MarkFlagRequired("powervs-zone")
+	cmd.MarkFlagRequired("region")
+	cmd.MarkFlagRequired("zone")
 	cmd.MarkFlagRequired("vpc-region")
 
 	// these options are only for development and testing purpose, user can pass these flags
@@ -131,13 +131,13 @@ func (options *DestroyInfraOptions) DestroyInfra(ctx context.Context, infra *Inf
 	log(options.InfraID).Info("Destroy Infra Started")
 	var err error
 
-	cloudApiKey, err = GetAPIKey()
+	cloudAPIKey, err = GetAPIKey()
 	if err != nil {
 		return fmt.Errorf("error retrieving IBM Cloud API Key: %w", err)
 	}
 
 	// if CLOUD API KEY is not set, infra cannot be set up.
-	if cloudApiKey == "" {
+	if cloudAPIKey == "" {
 		return fmt.Errorf("cloud API Key not set. Set it with IBMCLOUD_API_KEY env var or set file path containing API Key credential in IBMCLOUD_CREDENTIALS")
 	}
 
@@ -210,7 +210,7 @@ func (options *DestroyInfraOptions) DestroyInfra(ctx context.Context, infra *Inf
 		}
 	}
 
-	v1, err := createVpcService(options.VPCRegion, options.InfraID)
+	v1, err := createVPCService(options.VPCRegion, options.InfraID)
 	if err != nil {
 		return err
 	}
@@ -283,25 +283,25 @@ func deleteDNSRecords(options *DestroyInfraOptions) error {
 // deleteSecrets delete secrets generated for control plane components
 func deleteSecrets(name, namespace, accountID string, resourceGroupID string) error {
 
-	err := deleteServiceID(name, cloudApiKey, accountID, resourceGroupID,
+	err := deleteServiceID(name, cloudAPIKey, accountID, resourceGroupID,
 		kubeCloudControllerManagerCR, kubeCloudControllerManagerCreds, namespace)
 	if err != nil {
 		return fmt.Errorf("error deleting kube cloud controller manager secret: %w", err)
 	}
 
-	err = deleteServiceID(name, cloudApiKey, accountID, resourceGroupID,
+	err = deleteServiceID(name, cloudAPIKey, accountID, resourceGroupID,
 		nodePoolManagementCR, nodePoolManagementCreds, namespace)
 	if err != nil {
 		return fmt.Errorf("error deleting nodepool management secret: %w", err)
 	}
 
-	err = deleteServiceID(name, cloudApiKey, accountID, "",
+	err = deleteServiceID(name, cloudAPIKey, accountID, "",
 		ingressOperatorCR, ingressOperatorCreds, namespace)
 	if err != nil {
 		return fmt.Errorf("error deleting ingress operator secret: %w", err)
 	}
 
-	err = deleteServiceID(name, cloudApiKey, accountID, resourceGroupID,
+	err = deleteServiceID(name, cloudAPIKey, accountID, resourceGroupID,
 		storageOperatorCR, storageOperatorCreds, namespace)
 	if err != nil {
 		return fmt.Errorf("error deleting ingress operator secret: %w", err)

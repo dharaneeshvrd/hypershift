@@ -30,7 +30,7 @@ import (
 	hypershiftLog "github.com/openshift/hypershift/cmd/log"
 )
 
-var cloudApiKey string
+var cloudAPIKey string
 
 const (
 	// Resource name suffix for creation
@@ -67,10 +67,10 @@ const (
 	dhcpServerCreationTimeout        = time.Minute * 30
 	cloudConnUpdateTimeout           = time.Minute * 10
 
-	// Service Name
-	powerVsService  = "powervs"
-	vpcService      = "vpc"
-	platformService = "platform"
+	// IBM Cloud service name as key for customEpEnvNameMapping
+	powervs  = "powervs"
+	vpc      = "vpc"
+	platform = "platform"
 
 	// Secret suffix
 	kubeCloudControllerManagerCreds = "cloud-controller-creds"
@@ -80,9 +80,9 @@ const (
 )
 
 var customEpEnvNameMapping = map[string]string{
-	powerVsService:  "IBMCLOUD_POWER_API_ENDPOINT",
-	vpcService:      "IBMCLOUD_VPC_API_ENDPOINT",
-	platformService: "IBMCLOUD_PLATFORM_API_ENDPOINT"}
+	powervs:  "IBMCLOUD_POWER_API_ENDPOINT",
+	vpc:      "IBMCLOUD_VPC_API_ENDPOINT",
+	platform: "IBMCLOUD_PLATFORM_API_ENDPOINT"}
 
 // CreateInfraOptions command line options for setting up infra in IBM PowerVS cloud
 type CreateInfraOptions struct {
@@ -108,7 +108,7 @@ type TimeDuration struct {
 
 var unsupportedPowerVSZones = []string{"wdc06"}
 
-var powerVsDefaultUrl = func(region string) string { return fmt.Sprintf("https://%s.power-iaas.cloud.ibm.com", region) }
+var powerVSDefaultUrl = func(region string) string { return fmt.Sprintf("https://%s.power-iaas.cloud.ibm.com", region) }
 var vpcDefaultUrl = func(region string) string { return fmt.Sprintf("https://%s.iaas.cloud.ibm.com/v1", region) }
 
 var log = func(name string) logr.Logger { return hypershiftLog.Log.WithName(name) }
@@ -203,9 +203,9 @@ func NewCreateCommand() *cobra.Command {
 
 	// these options are only for development and testing purpose,
 	// can use these to reuse the existing resources, so hiding it.
-	cmd.Flags().MarkHidden("powervs-cloud-instance-id")
+	cmd.Flags().MarkHidden("cloud-instance-id")
 	cmd.Flags().MarkHidden("vpc")
-	cmd.Flags().MarkHidden("powervs-cloud-connection")
+	cmd.Flags().MarkHidden("cloud-connection")
 
 	cmd.MarkFlagRequired("base-domain")
 	cmd.MarkFlagRequired("resource-group")
@@ -259,7 +259,7 @@ func (options *CreateInfraOptions) Run(ctx context.Context) error {
 	return nil
 }
 
-// checkUnsupportedPowerVSZone omitting powervs zones that does not support hypershift infra creation flow
+// checkUnsupportedPowerVSZone omitting PowerVS zones that does not support hypershift infra creation flow
 func checkUnsupportedPowerVSZone(zone string) error {
 	for i := 0; i < len(unsupportedPowerVSZones); i++ {
 		if unsupportedPowerVSZones[i] == zone {
@@ -295,13 +295,13 @@ func (infra *Infra) SetupInfra(ctx context.Context, options *CreateInfraOptions)
 
 	log(options.InfraID).Info("Setup infra started")
 
-	cloudApiKey, err = GetAPIKey()
+	cloudAPIKey, err = GetAPIKey()
 	if err != nil {
 		return fmt.Errorf("error retrieving IBM Cloud API Key: %w", err)
 	}
 
 	// if CLOUD API KEY is not set, infra cannot be set up.
-	if cloudApiKey == "" {
+	if cloudAPIKey == "" {
 		return fmt.Errorf("cloud API Key not set. Set it with IBMCLOUD_API_KEY env var or set file path containing API Key credential in IBMCLOUD_CREDENTIALS")
 	}
 
@@ -323,7 +323,7 @@ func (infra *Infra) SetupInfra(ctx context.Context, options *CreateInfraOptions)
 		return fmt.Errorf("error setup secrets: %w", err)
 	}
 
-	v1, err := createVpcService(options.VPCRegion, options.InfraID)
+	v1, err := createVPCService(options.VPCRegion, options.InfraID)
 	if err != nil {
 		return fmt.Errorf("error creating vpc service: %w", err)
 	}
@@ -374,25 +374,25 @@ func (infra *Infra) setupSecrets(options *CreateInfraOptions) error {
 
 	infra.Secrets = Secrets{}
 
-	infra.Secrets.KubeCloudControllerManager, err = setupServiceID(options.Name, cloudApiKey, infra.AccountID, infra.ResourceGroupID,
+	infra.Secrets.KubeCloudControllerManager, err = setupServiceID(options.Name, cloudAPIKey, infra.AccountID, infra.ResourceGroupID,
 		kubeCloudControllerManagerCR, kubeCloudControllerManagerCreds, options.Namespace)
 	if err != nil {
 		return fmt.Errorf("error setup kube cloud controller manager secret: %w", err)
 	}
 
-	infra.Secrets.NodePoolManagement, err = setupServiceID(options.Name, cloudApiKey, infra.AccountID, infra.ResourceGroupID,
+	infra.Secrets.NodePoolManagement, err = setupServiceID(options.Name, cloudAPIKey, infra.AccountID, infra.ResourceGroupID,
 		nodePoolManagementCR, nodePoolManagementCreds, options.Namespace)
 	if err != nil {
 		return fmt.Errorf("error setup nodepool management secret: %w", err)
 	}
 
-	infra.Secrets.IngressOperator, err = setupServiceID(options.Name, cloudApiKey, infra.AccountID, "",
+	infra.Secrets.IngressOperator, err = setupServiceID(options.Name, cloudAPIKey, infra.AccountID, "",
 		ingressOperatorCR, ingressOperatorCreds, options.Namespace)
 	if err != nil {
 		return fmt.Errorf("error setup ingress operator secret: %w", err)
 	}
 
-	infra.Secrets.StorageOperator, err = setupServiceID(options.Name, cloudApiKey, infra.AccountID, infra.ResourceGroupID,
+	infra.Secrets.StorageOperator, err = setupServiceID(options.Name, cloudAPIKey, infra.AccountID, infra.ResourceGroupID,
 		storageOperatorCR, storageOperatorCreds, options.Namespace)
 	if err != nil {
 		return fmt.Errorf("error setup storage operator secret: %w", err)
@@ -406,7 +406,7 @@ func (infra *Infra) setupSecrets(options *CreateInfraOptions) error {
 // getIAMAuth getting core.Authenticator
 func getIAMAuth() *core.IamAuthenticator {
 	return &core.IamAuthenticator{
-		ApiKey: cloudApiKey,
+		ApiKey: cloudAPIKey,
 	}
 }
 
@@ -415,7 +415,7 @@ func getCISDomainDetails(baseDomain string) (string, string, error) {
 	var CISCRN, CISDomainID string
 	rcv2, err := resourcecontrollerv2.NewResourceControllerV2(&resourcecontrollerv2.ResourceControllerV2Options{
 		Authenticator: getIAMAuth(),
-		URL:           getCustomEndpointUrl(platformService, resourcecontrollerv2.DefaultServiceURL),
+		URL:           getCustomEndpointUrl(platform, resourcecontrollerv2.DefaultServiceURL),
 	})
 	if err != nil {
 		return "", "", err
@@ -544,7 +544,7 @@ func getServiceInfo(service string, servicePlan string) (string, string, error) 
 	var serviceID, servicePlanID string
 	gcv1, err := globalcatalogv1.NewGlobalCatalogV1(&globalcatalogv1.GlobalCatalogV1Options{
 		Authenticator: getIAMAuth(),
-		URL:           getCustomEndpointUrl(platformService, globalcatalogv1.DefaultServiceURL),
+		URL:           getCustomEndpointUrl(platform, globalcatalogv1.DefaultServiceURL),
 	})
 	if err != nil {
 		return "", "", err
@@ -607,7 +607,7 @@ func getCustomEndpointUrl(serviceName string, defaultUrl string) string {
 func getResourceGroupID(resourceGroup string, accountID string) (string, error) {
 	rmv2, err := resourcemanagerv2.NewResourceManagerV2(&resourcemanagerv2.ResourceManagerV2Options{
 		Authenticator: getIAMAuth(),
-		URL:           getCustomEndpointUrl(platformService, resourcemanagerv2.DefaultServiceURL),
+		URL:           getCustomEndpointUrl(platform, resourcemanagerv2.DefaultServiceURL),
 	})
 	if err != nil {
 		return "", err
@@ -633,12 +633,12 @@ func getResourceGroupID(resourceGroup string, accountID string) (string, error) 
 	return "", err
 }
 
-// createCloudInstance creating powervs cloud instance
+// createCloudInstance creating PowerVS cloud instance
 func (infra *Infra) createCloudInstance(options *CreateInfraOptions) (*resourcecontrollerv2.ResourceInstance, error) {
 
 	rcv2, err := resourcecontrollerv2.NewResourceControllerV2(&resourcecontrollerv2.ResourceControllerV2Options{
 		Authenticator: getIAMAuth(),
-		URL:           getCustomEndpointUrl(platformService, resourcecontrollerv2.DefaultServiceURL),
+		URL:           getCustomEndpointUrl(platform, resourcecontrollerv2.DefaultServiceURL),
 	})
 
 	if err != nil {
@@ -712,13 +712,13 @@ func (infra *Infra) createCloudInstance(options *CreateInfraOptions) (*resourcec
 func getAccount(auth core.Authenticator) (string, error) {
 	iamv1, err := iamidentityv1.NewIamIdentityV1(&iamidentityv1.IamIdentityV1Options{
 		Authenticator: auth,
-		URL:           getCustomEndpointUrl(platformService, iamidentityv1.DefaultServiceURL),
+		URL:           getCustomEndpointUrl(platform, iamidentityv1.DefaultServiceURL),
 	})
 	if err != nil {
 		return "", err
 	}
 
-	apiKeyDetailsOpt := iamidentityv1.GetAPIKeysDetailsOptions{IamAPIKey: &cloudApiKey}
+	apiKeyDetailsOpt := iamidentityv1.GetAPIKeysDetailsOptions{IamAPIKey: &cloudAPIKey}
 	apiKey, _, err := iamv1.GetAPIKeysDetails(&apiKeyDetailsOpt)
 	if err != nil {
 		return "", err
@@ -736,21 +736,20 @@ func createPowerVSSession(accountID string, powerVSRegion string, powerVSZone st
 
 	opt := &ibmpisession.IBMPIOptions{Authenticator: auth,
 		Debug:       debug,
-		URL:         getCustomEndpointUrl(powerVsService, powerVsDefaultUrl(powerVSRegion)),
+		URL:         getCustomEndpointUrl(powervs, powerVSDefaultUrl(powerVSRegion)),
 		UserAccount: accountID,
 		Zone:        powerVSZone}
 
 	return ibmpisession.NewIBMPISession(opt)
 }
 
-// createVpcService creates VpcService of type *vpcv1.VpcV1
-func createVpcService(region string, infraID string) (*vpcv1.VpcV1, error) {
+// createVPCService creates VpcService of type *vpcv1.VpcV1
+func createVPCService(region string, infraID string) (*vpcv1.VpcV1, error) {
 	v1, err := vpcv1.NewVpcV1(&vpcv1.VpcV1Options{
 		ServiceName:   "vpcs",
 		Authenticator: getIAMAuth(),
-		URL:           getCustomEndpointUrl(vpcService, vpcDefaultUrl(region)),
+		URL:           getCustomEndpointUrl(vpc, vpcDefaultUrl(region)),
 	})
-	log(infraID).Info("Created VPC Service for", "URL", v1.GetServiceURL())
 	return v1, err
 }
 
