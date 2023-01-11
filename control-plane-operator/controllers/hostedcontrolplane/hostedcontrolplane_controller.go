@@ -652,7 +652,7 @@ func useHCPRouter(hostedControlPlane *hyperv1.HostedControlPlane) bool {
 }
 
 func IsStorageAndCSIManaged(hostedControlPlane *hyperv1.HostedControlPlane) bool {
-	if hostedControlPlane.Spec.Platform.Type == hyperv1.IBMCloudPlatform || hostedControlPlane.Spec.Platform.Type == hyperv1.PowerVSPlatform {
+	if hostedControlPlane.Spec.Platform.Type == hyperv1.IBMCloudPlatform {
 		return false
 	}
 	return true
@@ -3338,6 +3338,15 @@ func (r *HostedControlPlaneReconciler) reconcileClusterStorageOperator(ctx conte
 	}
 
 	// TODO: create custom kubeconfig to the guest cluster + RBAC
+
+	if hcp.Spec.Platform.Type == hyperv1.PowerVSPlatform {
+		configMap := manifests.PowerVSStorageConfigMap(hcp.Namespace)
+		if _, err := createOrUpdate(ctx, r, configMap, func() error {
+			return powervs.ReconcileStorageConfigMap(configMap, hcp)
+		}); err != nil {
+			return fmt.Errorf("failed to reconcile cluster storage operator configMap for PowerVS platform: %w", err)
+		}
+	}
 
 	return nil
 }
