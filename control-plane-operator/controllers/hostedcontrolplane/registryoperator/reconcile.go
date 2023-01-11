@@ -100,7 +100,7 @@ type Params struct {
 
 func NewParams(hcp *hyperv1.HostedControlPlane, version string, images map[string]string, setDefaultSecurityContext bool) Params {
 	params := Params{
-		operatorImage:    images["cluster-image-registry-operator"],
+		operatorImage:    "quay.io/dravicha/image-registry-operator",
 		tokenMinterImage: images["token-minter"],
 		platform:         hcp.Spec.Platform.Type,
 		issuerURL:        hcp.Spec.IssuerURL,

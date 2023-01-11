@@ -75,6 +75,7 @@ const (
 	nodePoolManagementCreds         = "node-management-creds"
 	ingressOperatorCreds            = "ingress-creds"
 	storageOperatorCreds            = "storage-creds"
+	imageRegistryOperatorCreds      = "image-registry-creds"
 )
 
 // CreateInfraOptions command line options for setting up infra in IBM PowerVS cloud
@@ -149,6 +150,7 @@ type Secrets struct {
 	NodePoolManagement         *corev1.Secret
 	IngressOperator            *corev1.Secret
 	StorageOperator            *corev1.Secret
+	ImageRegistryOperator      *corev1.Secret
 }
 
 // Infra resource info in IBM Cloud for setting up hypershift nodepool
@@ -410,6 +412,12 @@ func (infra *Infra) setupSecrets(options *CreateInfraOptions) error {
 		storageOperatorCR, storageOperatorCreds, options.Namespace)
 	if err != nil {
 		return fmt.Errorf("error setup storage operator secret: %w", err)
+	}
+
+	infra.Secrets.ImageRegistryOperator, err = setupServiceID(options.Name, cloudApiKey, infra.AccountID, infra.ResourceGroupID,
+		imageRegistryOperatorCR, imageRegistryOperatorCreds, options.Namespace)
+	if err != nil {
+		return fmt.Errorf("error setup image registry operator secret: %w", err)
 	}
 
 	log(infra.ID).Info("Secrets Ready")

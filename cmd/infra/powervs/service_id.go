@@ -2,6 +2,7 @@ package powervs
 
 import (
 	"fmt"
+	"github.com/IBM/platform-services-go-sdk/iamidentityv1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"strings"
@@ -109,6 +110,34 @@ spec:
       - crn:v1:bluemix:public:iam::::role:Viewer
 `
 
+var imageRegistryOperatorCR = `
+apiVersion: cloudcredential.openshift.io/v1
+kind: CredentialsRequest
+metadata:
+  name: openshift-image-registry-powervs
+  namespace: openshift-image-registry
+spec:
+  providerSpec:
+    apiVersion: cloudcredential.openshift.io/v1
+    kind: IBMCloudPowerVSProviderSpec
+    policies:
+    - attributes:
+      - name: serviceName
+        value: cloud-object-storage
+      roles:
+      - crn:v1:bluemix:public:iam::::role:Administrator
+      - crn:v1:bluemix:public:iam::::serviceRole:Manager
+    - attributes:
+      - name: resourceType
+        value: resource-group
+      roles:
+      - crn:v1:bluemix:public:iam::::role:Viewer
+    - attributes:
+      - name: serviceType
+        value: platform_service
+      roles:
+      - crn:v1:bluemix:public:iam::::role:Administrator`
+
 // createServiceIDClient creates cloud credential operator's serviceID client
 func createServiceIDClient(name, APIKey, accountID, resourceGroupID, crYaml, secretRefName, secretRefNamespace string) (*cco.ServiceID, error) {
 	ccoIBMClient, err := ccoibmcloud.NewClient(APIKey, &ccoibmcloud.ClientParams{InfraName: name})
@@ -161,5 +190,23 @@ func deleteServiceID(name, APIKey, accountID, resourceGroupID, crYaml, secretRef
 		return err
 	}
 
+	return nil
+}
+
+func extractServiceIDFromCRN(crn string) string {
+	crnL := strings.Split(crn, ":")
+	return crnL[len(crnL)-1]
+}
+
+func deleteServiceIDByCRN(name string, apiKey string, crn string) error {
+	serviceID := extractServiceIDFromCRN(crn)
+	ccoIBMClient, err := ccoibmcloud.NewClient(apiKey, &ccoibmcloud.ClientParams{InfraName: name})
+	if err != nil {
+		return err
+	}
+	_, err = ccoIBMClient.DeleteServiceID(&iamidentityv1.DeleteServiceIDOptions{ID: &serviceID})
+	if err != nil {
+		return err
+	}
 	return nil
 }

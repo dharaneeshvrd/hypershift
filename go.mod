@@ -8,6 +8,7 @@ require (
 	github.com/Azure/go-autorest/autorest/azure/auth v0.5.11
 	github.com/IBM-Cloud/power-go-client v1.2.1
 	github.com/IBM/go-sdk-core/v5 v5.10.2
+	github.com/IBM/ibm-cos-sdk-go v1.9.3
 	github.com/IBM/networking-go-sdk v0.29.0
 	github.com/IBM/platform-services-go-sdk v0.28.5
 	github.com/IBM/vpc-go-sdk v0.26.0
@@ -44,7 +45,7 @@ require (
 	github.com/vincent-petithory/dataurl v1.0.0
 	go.uber.org/zap v1.19.1
 	golang.org/x/crypto v0.0.0-20220622213112-05595931fe9d
-	golang.org/x/net v0.0.0-20220927171203-f486391704dc
+	golang.org/x/net v0.3.0
 	golang.org/x/time v0.0.0-20220210224613-90d013bbcef8
 	gopkg.in/ini.v1 v1.66.4
 	gopkg.in/square/go-jose.v2 v2.5.1
@@ -157,16 +158,16 @@ require (
 	github.com/russross/blackfriday v1.5.2 // indirect
 	github.com/sirupsen/logrus v1.8.1 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
-	github.com/stretchr/testify v1.8.0 // indirect
+	github.com/stretchr/testify v1.8.1 // indirect
 	github.com/xlab/treeprint v0.0.0-20181112141820-a009c3971eca // indirect
 	go.mongodb.org/mongo-driver v1.10.0 // indirect
 	go.starlark.net v0.0.0-20200306205701-8dd3e2ee1dd5 // indirect
 	go.uber.org/atomic v1.7.0 // indirect
 	go.uber.org/multierr v1.6.0 // indirect
 	golang.org/x/oauth2 v0.0.0-20220608161450-d0670ef3b1eb // indirect
-	golang.org/x/sys v0.0.0-20220728004956-3c1f35247d10 // indirect
-	golang.org/x/term v0.0.0-20210927222741-03fcf44c2211 // indirect
-	golang.org/x/text v0.3.7 // indirect
+	golang.org/x/sys v0.3.0 // indirect
+	golang.org/x/term v0.3.0 // indirect
+	golang.org/x/text v0.5.0 // indirect
 	gomodules.xyz/jsonpatch/v2 v2.2.0 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
 	google.golang.org/protobuf v1.28.0 // indirect
@@ -185,6 +186,7 @@ require (
 )
 
 replace (
+	github.com/openshift/api => github.com/dharaneeshvrd/api v0.0.0-20230113074149-1c7aeed8b8d2
 	kubevirt.io/containerized-data-importer-api => github.com/kubevirt/containerized-data-importer-api v1.41.1-0.20211201033752-05520fb9f18d
 	sigs.k8s.io/apiserver-network-proxy/konnectivity-client => sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.0.24
 	sigs.k8s.io/cluster-api => sigs.k8s.io/cluster-api v1.0.0

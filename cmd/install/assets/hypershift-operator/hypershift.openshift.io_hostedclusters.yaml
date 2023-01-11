@@ -454,12 +454,14 @@ spec:
                       serviceAccountIssuer:
                         description: 'serviceAccountIssuer is the identifier of the
                           bound service account token issuer. The default is https://kubernetes.default.svc
-                          WARNING: Updating this field will result in the invalidation
-                          of all bound tokens with the previous issuer value. Unless
-                          the holder of a bound token has explicit support for a change
-                          in issuer, they will not request a new bound token until
-                          pod restart or until their existing token exceeds 80% of
-                          its duration.'
+                          WARNING: Updating this field will not result in immediate
+                          invalidation of all bound tokens with the previous issuer
+                          value. Instead, the tokens issued by previous service account
+                          issuer will continue to be trusted for a time period chosen
+                          by the platform (currently set to 24h). This time period
+                          is subject to change over time. This allows internal components
+                          to transition to use new service account issuer without
+                          service distruption.'
                         type: string
                       type:
                         description: type identifies the cluster managed, user facing
@@ -765,7 +767,7 @@ spec:
                           this pattern: \"*.<domain>\". \n Once set, changing domain
                           is not currently supported."
                         type: string
-                      loadbalancer:
+                      loadBalancer:
                         description: loadBalancer contains the load balancer details
                           in general which are not only specific to the underlying
                           infrastructure provider of the current cluster and are required
@@ -831,6 +833,7 @@ spec:
                                 - PowerVS
                                 - AlibabaCloud
                                 - Nutanix
+                                - External
                                 type: string
                             type: object
                         type: object
@@ -3355,8 +3358,8 @@ spec:
                             state at the time when the update target was accepted.
                           type: boolean
                         version:
-                          description: version is a semantic versioning identifying
-                            the update version. If the requested image does not define
+                          description: version is a semantic version identifying the
+                            update version. If the requested image does not define
                             a version, or if a failure occurs retrieving the image,
                             this value may be empty.
                           type: string
@@ -3819,12 +3822,14 @@ spec:
                       serviceAccountIssuer:
                         description: 'serviceAccountIssuer is the identifier of the
                           bound service account token issuer. The default is https://kubernetes.default.svc
-                          WARNING: Updating this field will result in the invalidation
-                          of all bound tokens with the previous issuer value. Unless
-                          the holder of a bound token has explicit support for a change
-                          in issuer, they will not request a new bound token until
-                          pod restart or until their existing token exceeds 80% of
-                          its duration.'
+                          WARNING: Updating this field will not result in immediate
+                          invalidation of all bound tokens with the previous issuer
+                          value. Instead, the tokens issued by previous service account
+                          issuer will continue to be trusted for a time period chosen
+                          by the platform (currently set to 24h). This time period
+                          is subject to change over time. This allows internal components
+                          to transition to use new service account issuer without
+                          service distruption.'
                         type: string
                       type:
                         description: type identifies the cluster managed, user facing
@@ -4114,7 +4119,7 @@ spec:
                           this pattern: \"*.<domain>\". \n Once set, changing domain
                           is not currently supported."
                         type: string
-                      loadbalancer:
+                      loadBalancer:
                         description: loadBalancer contains the load balancer details
                           in general which are not only specific to the underlying
                           infrastructure provider of the current cluster and are required
@@ -4180,6 +4185,7 @@ spec:
                                 - PowerVS
                                 - AlibabaCloud
                                 - Nutanix
+                                - External
                                 type: string
                             type: object
                         type: object
@@ -5913,6 +5919,17 @@ spec:
                           can't be changed.
                         pattern: '^crn:'
                         type: string
+                      imageRegistryOperatorCloudCreds:
+                        description: ImageRegistryOperatorCloudCreds is a reference
+                          to a secret containing ibm cloud credentials for image registry
+                          operator to get authenticated with ibm cloud.
+                        properties:
+                          name:
+                            description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                              TODO: Add other useful fields. apiVersion, kind, uid?'
+                            type: string
+                        type: object
+                        x-kubernetes-map-type: atomic
                       ingressOperatorCloudCreds:
                         description: IngressOperatorCloudCreds is a reference to a
                           secret containing ibm cloud credentials for ingress operator
@@ -6033,6 +6050,7 @@ spec:
                     required:
                     - accountID
                     - cisInstanceCRN
+                    - imageRegistryOperatorCloudCreds
                     - ingressOperatorCloudCreds
                     - kubeCloudControllerCreds
                     - nodePoolManagementCreds
@@ -6593,8 +6611,8 @@ spec:
                             state at the time when the update target was accepted.
                           type: boolean
                         version:
-                          description: version is a semantic versioning identifying
-                            the update version. If the requested image does not define
+                          description: version is a semantic version identifying the
+                            update version. If the requested image does not define
                             a version, or if a failure occurs retrieving the image,
                             this value may be empty.
                           type: string

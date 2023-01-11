@@ -290,13 +290,15 @@ func (r *reconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result
 	registryConfig := manifests.Registry()
 	// IBM Cloud platform allows managed service automation to initialize the registry config and then afterwards
 	// the client is in full control of the updates
-	if r.platformType != hyperv1.IBMCloudPlatform {
+	if !(r.platformType == hyperv1.IBMCloudPlatform || r.platformType == hyperv1.PowerVSPlatform) {
 		if _, err := r.CreateOrUpdate(ctx, r.client, registryConfig, func() error {
 			registry.ReconcileRegistryConfig(registryConfig, r.platformType, hcp.Spec.InfrastructureAvailabilityPolicy)
 			return nil
 		}); err != nil {
 			errs = append(errs, fmt.Errorf("failed to reconcile imageregistry config: %w", err))
 		}
+	} else {
+		log.Info("Not creating registry config in PowerVS")
 	}
 
 	log.Info("reconciling ingress controller")
@@ -1052,6 +1054,24 @@ func (r *reconciler) reconcileCloudCredentialSecrets(ctx context.Context, hcp *h
 		err = createPowerVSSecret(&storageCredentials, ibmPowerVSCloudCredentials)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("failed to reconcile powervs storage cloud credentials secret %w", err))
+		}
+
+		var imageRegistryCredentials corev1.Secret
+		err = r.cpClient.Get(ctx, client.ObjectKey{Namespace: hcp.Namespace, Name: hcp.Spec.Platform.PowerVS.ImageRegistryOperatorCloudCreds.Name}, &imageRegistryCredentials)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("failed to get image registry operator cloud credentials secret %s from hcp namespace : %w", hcp.Spec.Platform.PowerVS.ImageRegistryOperatorCloudCreds.Name, err))
+			return errs
+		}
+		log.Info("creating imageRegistryCredentials for power")
+		imageRegistryInstallerCloudCredentials := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "openshift-image-registry",
+				Name:      "installer-cloud-credentials",
+			},
+		}
+		err = createPowerVSSecret(&imageRegistryCredentials, imageRegistryInstallerCloudCredentials)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("failed to reconcile powervs image registry cloud credentials secret %w", err))
 		}
 	}
 	return errs

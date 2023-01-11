@@ -4,21 +4,31 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
+
+	"golang.org/x/net/http/httpproxy"
 
 	"github.com/IBM-Cloud/power-go-client/power/models"
 	"github.com/IBM/networking-go-sdk/dnsrecordsv1"
 	"k8s.io/apimachinery/pkg/util/errors"
 
-	"github.com/spf13/cobra"
-	"k8s.io/apimachinery/pkg/util/wait"
-
 	"github.com/IBM-Cloud/power-go-client/clients/instance"
 	"github.com/IBM-Cloud/power-go-client/ibmpisession"
+	"github.com/IBM/ibm-cos-sdk-go/aws"
+	"github.com/IBM/ibm-cos-sdk-go/aws/awserr"
+	"github.com/IBM/ibm-cos-sdk-go/aws/credentials/ibmiam"
+	cosSession "github.com/IBM/ibm-cos-sdk-go/aws/session"
+	"github.com/IBM/ibm-cos-sdk-go/service/s3"
+	"github.com/IBM/ibm-cos-sdk-go/service/s3/s3manager"
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
 	"github.com/IBM/vpc-go-sdk/vpcv1"
+	"github.com/spf13/cobra"
+	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 const (
@@ -27,6 +37,8 @@ const (
 	powerVSResourceDeletionTimeout = time.Minute * 5
 	vpcResourceDeletionTimeout     = time.Minute * 2
 	dhcpServerDeletionTimeout      = time.Minute * 10
+
+	iamEndpoint = "https://iam.cloud.ibm.com/identity/token"
 
 	// Resource desired states
 	powerVSCloudInstanceRemovedState = "removed"
@@ -57,6 +69,8 @@ type DestroyInfraOptions struct {
 	VPC                string
 	Debug              bool
 }
+
+var unavailableCOSInstance = func(name string) error { return fmt.Errorf("%s COS instance unavailable", name) }
 
 func NewDestroyCommand() *cobra.Command {
 	cmd := &cobra.Command{
@@ -167,6 +181,11 @@ func (options *DestroyInfraOptions) DestroyInfra(ctx context.Context, infra *Inf
 	if err = deleteSecrets(options.Name, options.Namespace, accountID, resourceGroupID); err != nil {
 		errL = append(errL, fmt.Errorf("error deleting secrets: %w", err))
 		log(options.InfraID).Error(err, "error deleting secrets")
+	}
+
+	if err = deleteImageRegistryCOS(ctx, options, resourceGroupID); err != nil {
+		errL = append(errL, fmt.Errorf("error deleting image registry buckets: %w", err))
+		log(options.InfraID).Error(err, "error deleting image registry buckets")
 	}
 
 	var powerVsCloudInstanceID string
@@ -308,6 +327,12 @@ func deleteSecrets(name, namespace, accountID string, resourceGroupID string) er
 		return fmt.Errorf("error deleting ingress operator secret: %w", err)
 	}
 
+	err = deleteServiceID(name, cloudApiKey, accountID, resourceGroupID,
+		imageRegistryOperatorCR, imageRegistryOperatorCreds, namespace)
+	if err != nil {
+		return fmt.Errorf("error deleting image registry operator secret: %w", err)
+	}
+
 	return nil
 }
 
@@ -370,6 +395,33 @@ func destroyPowerVsDhcpServer(ctx context.Context, infra *Infra, cloudInstanceID
 	return wait.PollImmediate(pollingInterval, dhcpServerDeletionTimeout, f)
 }
 
+func monitorResourceDeletion(rcv2 *resourcecontrollerv2.ResourceControllerV2, infraID string, resourceID string) error {
+	f := func() (bool, error) {
+		resourceInst, resp, err := rcv2.GetResourceInstance(&resourcecontrollerv2.GetResourceInstanceOptions{ID: &resourceID})
+		if err != nil {
+			log(infraID).Error(err, "error in querying deleted cloud instance", "resp", resp.String())
+			return false, err
+		}
+
+		if resp.StatusCode >= 400 {
+			return false, fmt.Errorf("retrying due to resp code is %d and message is %s", resp.StatusCode, resp.String())
+		}
+		if resourceInst != nil {
+			if *resourceInst.State == powerVSCloudInstanceRemovedState {
+				return true, nil
+			}
+
+			log(infraID).Info("Waiting for PowerVS resource instance deletion", "status", *resourceInst.State, "lastOp", resourceInst.LastOperation)
+		}
+
+		return false, nil
+	}
+
+	err := wait.PollImmediate(pollingInterval, cloudInstanceDeletionTimeout, f)
+
+	return err
+}
+
 // destroyPowerVsCloudInstance destroying powervs cloud instance
 func destroyPowerVsCloudInstance(ctx context.Context, options *DestroyInfraOptions, infra *Infra, cloudInstanceID string, session *ibmpisession.IBMPISession) error {
 	rcv2, err := resourcecontrollerv2.NewResourceControllerV2(&resourcecontrollerv2.ResourceControllerV2Options{Authenticator: getIAMAuth()})
@@ -384,32 +436,13 @@ func destroyPowerVsCloudInstance(ctx context.Context, options *DestroyInfraOptio
 		for retry := 0; retry < 5; retry++ {
 			log(options.InfraID).Info("Deleting PowerVS cloud instance", "id", cloudInstanceID)
 			if _, err = rcv2.DeleteResourceInstance(&resourcecontrollerv2.DeleteResourceInstanceOptions{ID: &cloudInstanceID}); err != nil {
+				if err.Error() == "Gone" {
+					return nil
+				}
 				log(options.InfraID).Error(err, "error in deleting powervs cloud instance")
 				continue
 			}
-
-			f := func() (bool, error) {
-				resourceInst, resp, err := rcv2.GetResourceInstance(&resourcecontrollerv2.GetResourceInstanceOptions{ID: &cloudInstanceID})
-				if err != nil {
-					log(options.InfraID).Error(err, "error in querying deleted cloud instance", "resp", resp.String())
-					return false, err
-				}
-
-				if resp.StatusCode >= 400 {
-					return false, fmt.Errorf("retrying due to resp code is %d and message is %s", resp.StatusCode, resp.String())
-				}
-				if resourceInst != nil {
-					if *resourceInst.State == powerVSCloudInstanceRemovedState {
-						return true, nil
-					}
-
-					log(options.InfraID).Info("Waiting for PowerVS cloud instance deletion", "status", *resourceInst.State, "lastOp", resourceInst.LastOperation)
-				}
-
-				return false, nil
-			}
-
-			if err = wait.PollImmediate(pollingInterval, cloudInstanceDeletionTimeout, f); err == nil {
+			if err = monitorResourceDeletion(rcv2, options.InfraID, cloudInstanceID); err != nil {
 				break
 			}
 			log(options.InfraID).Info("Retrying cloud instance deletion ...")
@@ -740,4 +773,193 @@ func destroyVpcLB(options *DestroyInfraOptions, subnetID string, v1 *vpcv1.VpcV1
 	}
 
 	return pagingHelper(f)
+}
+
+// createCOSClient creates COS client to interact with the COS for clean up
+func createCOSClient(serviceInstanceCRN string, cosLocation string) (*s3.S3, error) {
+	serviceEndpoint := fmt.Sprintf("s3.%s.cloud-object-storage.appdomain.cloud", cosLocation)
+	awsOptions := cosSession.Options{
+		Config: aws.Config{
+			Endpoint: &serviceEndpoint,
+			Region:   &cosLocation,
+			HTTPClient: &http.Client{
+				Transport: &http.Transport{
+					Proxy: func(req *http.Request) (*url.URL, error) {
+						return httpproxy.FromEnvironment().ProxyFunc()(req.URL)
+					},
+					DialContext: (&net.Dialer{
+						Timeout:   30 * time.Second,
+						KeepAlive: 30 * time.Second,
+						DualStack: true,
+					}).DialContext,
+					ForceAttemptHTTP2:     true,
+					MaxIdleConns:          100,
+					IdleConnTimeout:       90 * time.Second,
+					TLSHandshakeTimeout:   10 * time.Second,
+					ExpectContinueTimeout: 1 * time.Second,
+				},
+			},
+			S3ForcePathStyle: aws.Bool(true),
+		},
+	}
+
+	awsOptions.Config.Credentials = ibmiam.NewStaticCredentials(aws.NewConfig(), iamEndpoint, cloudApiKey, serviceInstanceCRN)
+
+	sess, err := cosSession.NewSessionWithOptions(awsOptions)
+	if err != nil {
+		return nil, err
+	}
+	return s3.New(sess), nil
+}
+
+// findCOSInstance find COS resource instance by name
+func findCOSInstance(rcv2 *resourcecontrollerv2.ResourceControllerV2, cosInstanceName string, resourceGroupID string) (*resourcecontrollerv2.ResourceInstance, error) {
+	resourcePlanID := "744bfc56-d12c-4866-88d5-dac9139e0e5d"
+
+	instances, resp, err := rcv2.ListResourceInstances(
+		&resourcecontrollerv2.ListResourceInstancesOptions{
+			Name:            &cosInstanceName,
+			ResourceGroupID: &resourceGroupID,
+			ResourcePlanID:  &resourcePlanID,
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to get resource instances: %s with resp code: %d", err.Error(), resp.StatusCode)
+	}
+
+	var cosInstance *resourcecontrollerv2.ResourceInstance
+	if len(instances.Resources) != 0 {
+		cosInstance = &instances.Resources[0]
+		return cosInstance, nil
+	}
+
+	return nil, unavailableCOSInstance(cosInstanceName)
+}
+
+// isBucketNotFound determines if a set of S3 errors are indicative
+// of if a bucket is truly not found.
+func isBucketNotFound(err interface{}) bool {
+	switch s3Err := err.(type) {
+	case awserr.Error:
+		if s3Err.Code() == "NoSuchBucket" {
+			return true
+		}
+		origErr := s3Err.OrigErr()
+		if origErr != nil {
+			return isBucketNotFound(origErr)
+		}
+	case s3manager.Error:
+		if s3Err.OrigErr != nil {
+			return isBucketNotFound(s3Err.OrigErr)
+		}
+	case s3manager.Errors:
+		if len(s3Err) == 1 {
+			return isBucketNotFound(s3Err[0])
+		}
+	}
+	return false
+}
+
+// deleteImageRegistryCOS deletes the COS instance and associated resources like objects, buckets and resource keys
+func deleteImageRegistryCOS(ctx context.Context, options *DestroyInfraOptions, resourceGroupID string) error {
+	cosInstanceName := fmt.Sprintf("%s-%s", options.InfraID, "image-registry")
+
+	rcv2, err := resourcecontrollerv2.NewResourceControllerV2(
+		&resourcecontrollerv2.ResourceControllerV2Options{
+			Authenticator: getIAMAuth(),
+			URL:           getCustomEndpointUrl(platformService, resourcecontrollerv2.DefaultServiceURL),
+		})
+
+	cosInstance, err := findCOSInstance(rcv2, cosInstanceName, resourceGroupID)
+	if err != nil {
+		if err.Error() == unavailableCOSInstance(cosInstanceName).Error() {
+			log(options.InfraID).Info("No COS Instance available to delete")
+			return nil
+		}
+		return err
+	}
+
+	cosClient, err := createCOSClient(*cosInstance.CRN, options.VPCRegion)
+	if err != nil {
+		return err
+	}
+
+	bucketNamePrefix := fmt.Sprintf("%s-%s", cosInstanceName, options.VPCRegion)
+	var bucketName string
+
+	bucketList, err := cosClient.ListBuckets(&s3.ListBucketsInput{IBMServiceInstanceId: cosInstance.ID})
+	if err != nil {
+		return err
+	}
+	for _, bucket := range bucketList.Buckets {
+		if strings.HasPrefix(*bucket.Name, bucketNamePrefix) {
+			bucketName = *bucket.Name
+		}
+	}
+
+	if bucketName != "" {
+		iter := s3manager.NewDeleteListIterator(cosClient, &s3.ListObjectsInput{
+			Bucket: aws.String(bucketName),
+		})
+
+		// Deleting objects under the bucket
+		err = s3manager.NewBatchDeleteWithClient(cosClient).Delete(ctx, iter)
+		if err != nil && !isBucketNotFound(err) {
+			return err
+		}
+
+		// Deleting the bucket
+		_, err = cosClient.DeleteBucketWithContext(ctx, &s3.DeleteBucketInput{
+			Bucket: aws.String(bucketName),
+		})
+
+		if err != nil {
+			if aerr, ok := err.(awserr.Error); ok {
+				if aerr.Code() != s3.ErrCodeNoSuchBucket {
+					return err
+				}
+			} else {
+				return err
+			}
+		}
+
+		f := func() (bool, error) {
+			if err := cosClient.WaitUntilBucketNotExistsWithContext(ctx, &s3.HeadBucketInput{
+				Bucket: aws.String(bucketName),
+			}); err != nil {
+				return false, err
+			}
+			return true, nil
+		}
+
+		err = wait.PollImmediate(pollingInterval, dhcpServerDeletionTimeout, f)
+		if err != nil {
+			return err
+		}
+	}
+
+	keysL, _, err := rcv2.ListResourceKeysForInstance(&resourcecontrollerv2.ListResourceKeysForInstanceOptions{ID: cosInstance.ID})
+	if err != nil {
+		return err
+	}
+	if len(keysL.Resources) > 0 {
+		for _, key := range keysL.Resources {
+			// Deleting resource keys associated with COS
+			err = deleteServiceIDByCRN(options.Name, cloudApiKey, *key.Credentials.IamServiceidCRN)
+			if err != nil {
+				return err
+			}
+			_, err = rcv2.DeleteResourceKeyWithContext(ctx, &resourcecontrollerv2.DeleteResourceKeyOptions{ID: key.ID})
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	log(options.InfraID).Info("Deleting COS Instance", "name", cosInstanceName)
+	if _, err = rcv2.DeleteResourceInstance(&resourcecontrollerv2.DeleteResourceInstanceOptions{ID: cosInstance.ID}); err != nil {
+		return err
+	}
+
+	return nil
 }
