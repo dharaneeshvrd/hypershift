@@ -23,3 +23,12 @@ func PowerVSCCMDeployment(ns string) *appsv1.Deployment {
 		},
 	}
 }
+
+func PowerVSStorageConfigMap(ns string) *corev1.ConfigMap {
+	return &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "storage-config",
+			Namespace: ns,
+		},
+	}
+}

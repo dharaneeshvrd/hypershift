@@ -301,7 +301,7 @@ func (p PowerVS) ReconcileCredentials(ctx context.Context, c client.Client, crea
 	dest = &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: controlPlaneNamespace,
-			Name:      src.Name,
+			Name:      "ibm-powervs-cloud-credentials",
 		},
 	}
 	_, err = createOrUpdate(ctx, c, dest, func() error {

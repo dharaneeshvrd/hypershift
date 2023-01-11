@@ -1034,7 +1034,7 @@ func (r *reconciler) reconcileCloudCredentialSecrets(ctx context.Context, hcp *h
 		}
 
 		var storageCredentials corev1.Secret
-		err = r.cpClient.Get(ctx, client.ObjectKey{Namespace: hcp.Namespace, Name: hcp.Spec.Platform.PowerVS.StorageOperatorCloudCreds.Name}, &storageCredentials)
+		err = r.cpClient.Get(ctx, client.ObjectKey{Namespace: hcp.Namespace, Name: "ibm-powervs-cloud-credentials"}, &storageCredentials)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("failed to get storage operator cloud credentials secret %s from hcp namespace : %w", hcp.Spec.Platform.PowerVS.StorageOperatorCloudCreds.Name, err))
 			return errs

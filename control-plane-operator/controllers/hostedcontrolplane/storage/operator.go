@@ -27,7 +27,8 @@ func ReconcileOperatorDeployment(
 	for i, container := range deployment.Spec.Template.Spec.Containers {
 		switch container.Name {
 		case "cluster-storage-operator":
-			deployment.Spec.Template.Spec.Containers[i].Image = params.StorageOperatorImage
+			// deployment.Spec.Template.Spec.Containers[i].Image = params.StorageOperatorImage
+			deployment.Spec.Template.Spec.Containers[i].Image = "quay.io/dravicha/cluster-storage-operator"
 			params.ImageReplacer.replaceEnvVars(deployment.Spec.Template.Spec.Containers[i].Env)
 		}
 	}

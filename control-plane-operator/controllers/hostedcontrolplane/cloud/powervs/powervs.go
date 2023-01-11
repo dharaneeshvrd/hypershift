@@ -42,6 +42,12 @@ powerVSCloudInstanceID = {{.PowerVSCloudInstanceID}}
 powerVSRegion = {{.PowerVSRegion}}
 powerVSZone = {{.PowerVSZone}}`
 
+const storageConfigTemplateData = `
+[provider]
+powerVSCloudInstanceID = {{.PowerVSCloudInstanceID}}
+powerVSZone = {{.PowerVSZone}}
+`
+
 var ccmConfigTemplate = template.Must(template.New("ccmConfigMap").Parse(ccmConfigTemplateData))
 
 func ReconcileCCMConfigMap(ccmConfig *corev1.ConfigMap, hcp *hyperv1.HostedControlPlane) error {
@@ -201,6 +207,29 @@ func ReconcileCCMDeployment(deployment *appsv1.Deployment, hcp *hyperv1.HostedCo
 			},
 		},
 	}
+
+	return nil
+}
+
+var storageConfigTemplate = template.Must(template.New("storageConfigMap").Parse(storageConfigTemplateData))
+
+func ReconcileStorageConfigMap(storageConfig *corev1.ConfigMap, hcp *hyperv1.HostedControlPlane) error {
+	config := map[string]string{
+		"PowerVSCloudInstanceID": hcp.Spec.Platform.PowerVS.ServiceInstanceID,
+		"PowerVSZone":            hcp.Spec.Platform.PowerVS.Zone,
+	}
+
+	configData := &bytes.Buffer{}
+	err := storageConfigTemplate.Execute(configData, config)
+	if err != nil {
+		return fmt.Errorf("error while parsing ccm config map template %v", err)
+	}
+
+	if storageConfig.Data == nil {
+		storageConfig.Data = map[string]string{}
+	}
+
+	storageConfig.Data[storageConfig.Name] = configData.String()
 
 	return nil
 }
