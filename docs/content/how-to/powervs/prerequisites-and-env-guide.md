@@ -58,4 +58,5 @@ Use following environment variables to set custom endpoint.
 IBMCLOUD_POWER_API_ENDPOINT    - to setup PowerVS custom endpoint
 IBMCLOUD_VPC_API_ENDPOINT      - to setup VPC custom endpoint
 IBMCLOUD_PLATFORM_API_ENDPOINT - to setup platform services custom endpoint
+IBMCLOUD_COS_API_ENDPOINT      - to setup COS custom endpoint, can use this to set up custom endpoints mentioned here https://cloud.ibm.com/docs/cloud-object-storage?topic=cloud-object-storage-endpoints#endpoints-region 
 ```
