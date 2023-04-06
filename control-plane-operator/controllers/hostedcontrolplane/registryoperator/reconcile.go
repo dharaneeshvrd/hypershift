@@ -365,7 +365,7 @@ func volumeServingCert() *corev1.Volume {
 func buildVolumeServingCert(v *corev1.Volume) {
 	v.Secret = &corev1.SecretVolumeSource{
 		SecretName:  manifests.ImageRegistryOperatorServingCert("").Name,
-		DefaultMode: pointer.Int32Ptr(0640),
+		DefaultMode: pointer.Int32(0640),
 	}
 }
 
@@ -378,7 +378,7 @@ func volumeAdminKubeconfig() *corev1.Volume {
 func buildVolumeAdminKubeconfig(v *corev1.Volume) {
 	v.Secret = &corev1.SecretVolumeSource{
 		SecretName:  manifests.KASServiceKubeconfigSecret("").Name,
-		DefaultMode: pointer.Int32Ptr(0640),
+		DefaultMode: pointer.Int32(0640),
 	}
 }
 
@@ -391,7 +391,7 @@ func volumeCABundle() *corev1.Volume {
 func buildVolumeCABundle(v *corev1.Volume) {
 	v.Secret = &corev1.SecretVolumeSource{
 		SecretName:  manifests.RootCASecret("").Name,
-		DefaultMode: pointer.Int32Ptr(0640),
+		DefaultMode: pointer.Int32(0640),
 	}
 }
 

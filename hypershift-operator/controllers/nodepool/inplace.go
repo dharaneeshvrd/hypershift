@@ -36,7 +36,7 @@ func (r *NodePoolReconciler) reconcileMachineSet(ctx context.Context,
 	if machineSet.GetLabels() == nil {
 		machineSet.Labels = map[string]string{}
 	}
-	machineSet.Labels[capiv1.ClusterLabelName] = CAPIClusterName
+	machineSet.Labels[capiv1.ClusterNameLabel] = CAPIClusterName
 
 	resourcesName := generateName(CAPIClusterName, nodePool.Spec.ClusterName, nodePool.GetName())
 	machineSet.Spec.MinReadySeconds = int32(0)
@@ -63,7 +63,7 @@ func (r *NodePoolReconciler) reconcileMachineSet(ctx context.Context,
 		ObjectMeta: capiv1.ObjectMeta{
 			Labels: map[string]string{
 				resourcesName:           resourcesName,
-				capiv1.ClusterLabelName: CAPIClusterName,
+				capiv1.ClusterNameLabel: CAPIClusterName,
 			},
 			// Annotations here propagate down to Machines
 			// https://cluster-api.sigs.k8s.io/developer/architecture/controllers/metadata-propagation.html#machinedeployment.
@@ -109,13 +109,13 @@ func (r *NodePoolReconciler) reconcileMachineSet(ctx context.Context,
 	machineSet.Spec.Template.Annotations[nodePoolAnnotationTaints] = taintsInJSON
 
 	// Propagate version and userData Secret to the MachineSet.
-	if userDataSecret.Name != k8sutilspointer.StringPtrDerefOr(machineSet.Spec.Template.Spec.Bootstrap.DataSecretName, "") {
+	if userDataSecret.Name != k8sutilspointer.StringDeref(machineSet.Spec.Template.Spec.Bootstrap.DataSecretName, "") {
 		log.Info("New user data Secret has been generated",
 			"current", machineSet.Spec.Template.Spec.Bootstrap.DataSecretName,
 			"target", userDataSecret.Name)
 
 		// TODO (alberto): possibly compare with NodePool here instead so we don't rely on impl details to drive decisions.
-		if targetVersion != k8sutilspointer.StringPtrDerefOr(machineSet.Spec.Template.Spec.Version, "") {
+		if targetVersion != k8sutilspointer.StringDeref(machineSet.Spec.Template.Spec.Version, "") {
 			log.Info("Starting version upgrade: Propagating new version to the MachineSet",
 				"releaseImage", nodePool.Spec.Release.Image, "target", targetVersion)
 		}
@@ -125,7 +125,7 @@ func (r *NodePoolReconciler) reconcileMachineSet(ctx context.Context,
 				"current", nodePool.Annotations[nodePoolAnnotationCurrentConfig], "target", targetConfigHash)
 		}
 		machineSet.Spec.Template.Spec.Version = &targetVersion
-		machineSet.Spec.Template.Spec.Bootstrap.DataSecretName = k8sutilspointer.StringPtr(userDataSecret.Name)
+		machineSet.Spec.Template.Spec.Bootstrap.DataSecretName = k8sutilspointer.String(userDataSecret.Name)
 
 		// Signal in-place upgrade request.
 		machineSet.Annotations[nodePoolAnnotationTargetConfigVersion] = targetConfigVersionHash
@@ -282,7 +282,7 @@ func getInPlaceMaxUnavailable(nodePool *hyperv1.NodePool) (int, error) {
 			intOrPercent = *nodePool.Spec.Management.InPlace.MaxUnavailable
 		}
 	}
-	replicas := int(k8sutilspointer.Int32PtrDerefOr(nodePool.Spec.Replicas, 0))
+	replicas := int(k8sutilspointer.Int32Deref(nodePool.Spec.Replicas, 0))
 	maxUnavailable, err := intstr.GetScaledValueFromIntOrPercent(&intOrPercent, replicas, false)
 	if err != nil {
 		return 0, err

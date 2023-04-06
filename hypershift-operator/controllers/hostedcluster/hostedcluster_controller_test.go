@@ -241,25 +241,25 @@ func TestReconcileHostedControlPlaneAPINetwork(t *testing.T) {
 		{
 			name: "advertise address specified",
 			networking: &hyperv1.APIServerNetworking{
-				AdvertiseAddress: pointer.StringPtr("1.2.3.4"),
+				AdvertiseAddress: pointer.String("1.2.3.4"),
 			},
-			expectedAPIAdvertiseAddress: pointer.StringPtr("1.2.3.4"),
+			expectedAPIAdvertiseAddress: pointer.String("1.2.3.4"),
 		},
 		{
 			name: "port specified",
 			networking: &hyperv1.APIServerNetworking{
-				Port: pointer.Int32Ptr(1234),
+				Port: pointer.Int32(1234),
 			},
-			expectedAPIPort: pointer.Int32Ptr(1234),
+			expectedAPIPort: pointer.Int32(1234),
 		},
 		{
 			name: "both specified",
 			networking: &hyperv1.APIServerNetworking{
-				Port:             pointer.Int32Ptr(6789),
-				AdvertiseAddress: pointer.StringPtr("9.8.7.6"),
+				Port:             pointer.Int32(6789),
+				AdvertiseAddress: pointer.String("9.8.7.6"),
 			},
-			expectedAPIPort:             pointer.Int32Ptr(6789),
-			expectedAPIAdvertiseAddress: pointer.StringPtr("9.8.7.6"),
+			expectedAPIPort:             pointer.Int32(6789),
+			expectedAPIAdvertiseAddress: pointer.String("9.8.7.6"),
 		},
 	}
 
@@ -902,23 +902,23 @@ func TestHostedClusterWatchesEverythingItCreates(t *testing.T) {
 			}
 		})
 	}
-	watchedResources := sets.String{}
+	watchedResources := sets.New[string]()
 	for _, resource := range r.managedResources() {
 		watchedResources.Insert(fmt.Sprintf("%T", resource))
 	}
-	if diff := cmp.Diff(client.createdTypes.List(), watchedResources.List()); diff != "" {
+	if diff := cmp.Diff(client.createdTypes.UnsortedList(), watchedResources.UnsortedList()); diff != "" {
 		t.Errorf("the set of resources that are being created differs from the one that is being watched: %s", diff)
 	}
 }
 
 type createTypeTrackingClient struct {
 	crclient.Client
-	createdTypes sets.String
+	createdTypes sets.Set[string]
 }
 
 func (c *createTypeTrackingClient) Create(ctx context.Context, obj crclient.Object, opts ...crclient.CreateOption) error {
 	if c.createdTypes == nil {
-		c.createdTypes = sets.String{}
+		c.createdTypes = sets.New[string]()
 	}
 	c.createdTypes.Insert(fmt.Sprintf("%T", obj))
 	return c.Client.Create(ctx, obj, opts...)

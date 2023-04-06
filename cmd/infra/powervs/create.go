@@ -930,8 +930,8 @@ func (infra *Infra) createVpc(ctx context.Context, options *CreateInfraOptions, 
 			SecurityGroupRulePrototype: &vpcv1.SecurityGroupRulePrototype{
 				Direction: utilpointer.String("inbound"),
 				Protocol:  utilpointer.String("tcp"),
-				PortMax:   utilpointer.Int64Ptr(port),
-				PortMin:   utilpointer.Int64Ptr(port),
+				PortMax:   utilpointer.Int64(port),
+				PortMin:   utilpointer.Int64(port),
 			},
 		})
 
