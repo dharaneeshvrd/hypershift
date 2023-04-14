@@ -26,6 +26,10 @@ type v1alpha1Wrapper struct {
 	innerClient crclient.Client
 }
 
+func (w *v1alpha1Wrapper) SubResource(subResource string) crclient.SubResourceClient {
+	return nil
+}
+
 func (w *v1alpha1Wrapper) Scheme() *runtime.Scheme {
 	return w.innerClient.Scheme()
 }
@@ -34,7 +38,7 @@ func (w *v1alpha1Wrapper) RESTMapper() meta.RESTMapper {
 	return w.innerClient.RESTMapper()
 }
 
-func (w *v1alpha1Wrapper) Get(ctx context.Context, key crclient.ObjectKey, obj crclient.Object) error {
+func (w *v1alpha1Wrapper) Get(ctx context.Context, key crclient.ObjectKey, obj crclient.Object, opt ...crclient.GetOption) error {
 	serverResource := v1alpha1Resource(obj)
 	if err := w.innerClient.Get(ctx, key, serverResource); err != nil {
 		return err
