@@ -906,8 +906,8 @@ func TestHostedClusterWatchesEverythingItCreates(t *testing.T) {
 	for _, resource := range r.managedResources() {
 		watchedResources.Insert(fmt.Sprintf("%T", resource))
 	}
-	if diff := cmp.Diff(client.createdTypes.UnsortedList(), watchedResources.UnsortedList()); diff != "" {
-		t.Errorf("the set of resources that are being created differs from the one that is being watched: %s", diff)
+	if diff := client.createdTypes.Difference(watchedResources); diff.Len() > 0 {
+		t.Errorf("the set of resources that are created are missing from the one that is being watched: %v", diff)
 	}
 }
 
