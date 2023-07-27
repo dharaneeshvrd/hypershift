@@ -3,6 +3,7 @@ package registry
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 
 	imageregistryv1 "github.com/openshift/api/imageregistry/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
@@ -25,9 +26,11 @@ func ReconcileRegistryConfig(cfg *imageregistryv1.Config, platform hyperv1.Platf
 	if cfg.Spec.HTTPSecret == "" {
 		cfg.Spec.HTTPSecret = generateImageRegistrySecret()
 	}
+	fmt.Println("**********************")
+	fmt.Println("in registry config platform:", platform)
 	if (platform == hyperv1.KubevirtPlatform || platform == hyperv1.NonePlatform) &&
 		cfg.Spec.Storage.EmptyDir == nil {
-
+		fmt.Println("setting emptyDir")
 		cfg.Spec.Storage = imageregistryv1.ImageRegistryConfigStorage{EmptyDir: &imageregistryv1.ImageRegistryConfigStorageEmptyDir{}}
 	}
 	// IBM Cloud platform allows to initialize the registry config and then afterwards the client is in full control of the updates
