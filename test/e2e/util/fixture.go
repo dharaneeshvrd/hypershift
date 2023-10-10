@@ -100,7 +100,7 @@ func destroyCluster(ctx context.Context, t *testing.T, hc *hyperv1.HostedCluster
 			Zone:            createOpts.PowerVSPlatform.Zone,
 			VPCRegion:       createOpts.PowerVSPlatform.VPCRegion,
 			CloudInstanceID: createOpts.PowerVSPlatform.CloudInstanceID,
-			CloudConnection: createOpts.PowerVSPlatform.CloudConnection,
+			TransitGateway:  createOpts.PowerVSPlatform.TransitGateway,
 			VPC:             createOpts.PowerVSPlatform.VPC,
 		}
 		return powervs.DestroyCluster(ctx, opts)

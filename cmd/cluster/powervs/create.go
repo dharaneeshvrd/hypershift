@@ -41,7 +41,7 @@ func NewCreateCommand(opts *core.CreateOptions) *cobra.Command {
 	cmd.Flags().StringVar(&opts.PowerVSPlatform.Region, "region", opts.PowerVSPlatform.Region, "IBM Cloud region. Default is us-south")
 	cmd.Flags().StringVar(&opts.PowerVSPlatform.Zone, "zone", opts.PowerVSPlatform.Zone, "IBM Cloud zone. Default is us-south")
 	cmd.Flags().StringVar(&opts.PowerVSPlatform.CloudInstanceID, "cloud-instance-id", "", "IBM Cloud PowerVS Service Instance ID. Use this flag to reuse an existing PowerVS Service Instance resource for cluster's infra")
-	cmd.Flags().StringVar(&opts.PowerVSPlatform.CloudConnection, "cloud-connection", "", "Cloud Connection in given zone. Use this flag to reuse an existing Cloud Connection resource for cluster's infra")
+	cmd.Flags().StringVar(&opts.PowerVSPlatform.TransitGateway, "transit-gateway", opts.PowerVSPlatform.TransitGateway, "IBM Cloud Transit Gateway. Use this flag to reuse an existing Transit Gateway resource for cluster's infra")
 	cmd.Flags().StringVar(&opts.PowerVSPlatform.VPCRegion, "vpc-region", opts.PowerVSPlatform.VPCRegion, "IBM Cloud VPC Region for VPC resources. Default is us-south")
 	cmd.Flags().StringVar(&opts.PowerVSPlatform.VPC, "vpc", "", "IBM Cloud VPC Name. Use this flag to reuse an existing VPC resource for cluster's infra")
 	cmd.Flags().StringVar(&opts.PowerVSPlatform.SysType, "sys-type", opts.PowerVSPlatform.SysType, "System type used to host the instance(e.g: s922, e980, e880). Default is s922")
@@ -57,7 +57,7 @@ func NewCreateCommand(opts *core.CreateOptions) *cobra.Command {
 	// these options are only for development and testing purpose,
 	// can use these to reuse the existing resources, so hiding it.
 	cmd.Flags().MarkHidden("cloud-instance-id")
-	cmd.Flags().MarkHidden("cloud-connection")
+	cmd.Flags().MarkHidden("transit-gateway")
 	cmd.Flags().MarkHidden("vpc")
 
 	cmd.Run = func(cmd *cobra.Command, args []string) {
@@ -124,7 +124,7 @@ func applyPlatformSpecificsValues(ctx context.Context, exampleOptions *apifixtur
 			Region:          opts.PowerVSPlatform.Region,
 			Zone:            opts.PowerVSPlatform.Zone,
 			CloudInstanceID: opts.PowerVSPlatform.CloudInstanceID,
-			CloudConnection: opts.PowerVSPlatform.CloudConnection,
+			TransitGateway:  opts.PowerVSPlatform.TransitGateway,
 			VPCRegion:       opts.PowerVSPlatform.VPCRegion,
 			VPC:             opts.PowerVSPlatform.VPC,
 			Debug:           opts.PowerVSPlatform.Debug,

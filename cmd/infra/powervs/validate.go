@@ -3,17 +3,17 @@ package powervs
 import (
 	"context"
 	"fmt"
-	"github.com/IBM-Cloud/power-go-client/clients/instance"
+	"github.com/IBM/networking-go-sdk/transitgatewayapisv1"
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
 	"github.com/IBM/vpc-go-sdk/vpcv1"
 )
 
 var (
-	cloudConNotFound              = func(cloudConnName string) error { return fmt.Errorf("%s cloud connection not found", cloudConnName) }
 	cloudInstanceNotFound         = func(cloudInstance string) error { return fmt.Errorf("%s cloud instance not found", cloudInstance) }
 	cloudInstanceNotInActiveState = func(state string) error {
 		return fmt.Errorf("provided cloud instance id is not in active state, current state: %s", state)
 	}
+	transitGatewayNotFound = func(transitGateway string) error { return fmt.Errorf("%s tranist gateway not found", transitGateway) }
 )
 
 // validateCloudInstanceByID
@@ -155,52 +155,54 @@ func validateVpc(ctx context.Context, vpcName string, resourceGroupID string, v1
 	return vpc, nil
 }
 
-// listAndGetCloudConnection
-// helper func will list the cloud connection and return the matched cloud connection id and total cloud connection count
-func listAndGetCloudConnection(cloudConnName string, client *instance.IBMPICloudConnectionClient) (int, string, error) {
-	cloudConnL, err := client.GetAll()
-	if err != nil {
-		return 0, "", err
+func validateTransitGatewayByName(ctx context.Context, tgapisv1 *transitgatewayapisv1.TransitGatewayApisV1, name string, validateStatus bool) (*transitgatewayapisv1.TransitGateway, error) {
+	var transitGateway *transitgatewayapisv1.TransitGateway
+
+	f := func(start string) (bool, string, error) {
+		tgList, _, err := tgapisv1.ListTransitGatewaysWithContext(ctx, &transitgatewayapisv1.ListTransitGatewaysOptions{})
+		if err != nil {
+			return false, "", fmt.Errorf("failed to list transit gateway %w", err)
+		}
+
+		for _, tg := range tgList.TransitGateways {
+			if *tg.Name == name {
+				transitGateway = &tg
+				return true, "", nil
+			}
+		}
+
+		if tgList.Next != nil && *tgList.Next.Href != "" {
+			return false, *tgList.Next.Href, nil
+		}
+
+		return true, "", nil
 	}
 
-	if cloudConnL == nil {
-		return 0, "", fmt.Errorf("cloud connection list returned is nil")
+	if err := pagingHelper(f); err != nil {
+		return nil, err
 	}
 
-	var cloudConnID string
-	cloudConnectionCount := len(cloudConnL.CloudConnections)
-	for _, cc := range cloudConnL.CloudConnections {
-		if cc != nil && *cc.Name == cloudConnName {
-			cloudConnID = *cc.CloudConnectionID
-			return cloudConnectionCount, cloudConnID, nil
+	if transitGateway == nil {
+		return nil, transitGatewayNotFound(name)
+	}
+
+	if validateStatus {
+		tgConns, _, err := tgapisv1.ListTransitGatewayConnectionsWithContext(ctx, &transitgatewayapisv1.ListTransitGatewayConnectionsOptions{
+			TransitGatewayID: transitGateway.ID,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("error listing transit gateway connections: %w", err)
+		}
+
+		for _, conn := range tgConns.Connections {
+			if *conn.NetworkType == "vpc" && *conn.Status != "attached" {
+				return nil, fmt.Errorf("error vpc connection not attached to transit gateway, current status: %s", *conn.Status)
+			}
+			if *conn.NetworkType == "power_virtual_server" && *conn.Status != "attached" {
+				return nil, fmt.Errorf("error powervs connection not attached to transit gateway, current status: %s", *conn.Status)
+			}
 		}
 	}
 
-	return cloudConnectionCount, "", cloudConNotFound(cloudConnName)
-}
-
-// validateCloudConnectionByName
-// validates cloud connection's existence by name
-func validateCloudConnectionByName(name string, client *instance.IBMPICloudConnectionClient) (string, error) {
-	_, cloudConnID, err := listAndGetCloudConnection(name, client)
-	return cloudConnID, err
-}
-
-// validateCloudConnectionInPowerVSZone
-// while creating a new cloud connection this func validates whether to create a new cloud connection
-// with respect to powervs zone's existing cloud connections
-func validateCloudConnectionInPowerVSZone(name string, client *instance.IBMPICloudConnectionClient) (string, error) {
-	cloudConnCount, cloudConnID, err := listAndGetCloudConnection(name, client)
-	if err != nil && err.Error() != cloudConNotFound(name).Error() {
-		return "", fmt.Errorf("failed to list cloud connections %w", err)
-	}
-
-	// explicitly setting err to nil since main objective here is to validate the number of cloud connections
-	err = nil
-
-	if cloudConnCount > 1 && cloudConnID == "" {
-		err = fmt.Errorf("cannot create new cloud connection in powervs zone. only 2 cloud connections allowed")
-	}
-
-	return cloudConnID, err
+	return transitGateway, nil
 }

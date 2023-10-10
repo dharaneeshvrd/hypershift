@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/IBM/networking-go-sdk/transitgatewayapisv1"
 	"net"
 	"net/http"
 	"net/url"
@@ -19,9 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	utilpointer "k8s.io/utils/pointer"
 
-	"github.com/IBM-Cloud/power-go-client/clients/instance"
 	"github.com/IBM-Cloud/power-go-client/ibmpisession"
-	"github.com/IBM-Cloud/power-go-client/power/models"
 	"github.com/IBM/ibm-cos-sdk-go/aws"
 	"github.com/IBM/ibm-cos-sdk-go/aws/awserr"
 	"github.com/IBM/ibm-cos-sdk-go/aws/credentials/ibmiam"
@@ -36,10 +35,9 @@ import (
 
 const (
 	// Time duration for monitoring the resource readiness
-	cloudInstanceDeletionTimeout   = time.Minute * 10
-	powerVSResourceDeletionTimeout = time.Minute * 5
-	vpcResourceDeletionTimeout     = time.Minute * 2
-	dhcpServerDeletionTimeout      = time.Minute * 10
+	cloudInstanceDeletionTimeout = time.Minute * 10
+	vpcResourceDeletionTimeout   = time.Minute * 2
+	dhcpServerDeletionTimeout    = time.Minute * 10
 
 	// Resource desired states
 	powerVSCloudInstanceRemovedState = "removed"
@@ -68,9 +66,9 @@ type DestroyInfraOptions struct {
 	Zone               string
 	CloudInstanceID    string
 	DHCPID             string
-	CloudConnection    string
 	VPCRegion          string
 	VPC                string
+	TransitGateway     string
 	Debug              bool
 }
 
@@ -96,7 +94,7 @@ func NewDestroyCommand() *cobra.Command {
 	cmd.Flags().StringVar(&opts.VPC, "vpc", opts.VPC, "IBM Cloud VPC. Use this flag to reuse an existing VPC resource for cluster's infra")
 	cmd.Flags().StringVar(&opts.Region, "region", opts.Region, "IBM Cloud PowerVS Region")
 	cmd.Flags().StringVar(&opts.Zone, "zone", opts.Zone, "IBM Cloud PowerVS Zone")
-	cmd.Flags().StringVar(&opts.CloudConnection, "cloud-connection", opts.CloudConnection, "IBM Cloud PowerVS Cloud Connection. Use this flag to reuse an existing Cloud Connection resource for cluster's infra")
+	cmd.Flags().StringVar(&opts.TransitGateway, "transit-gateway", opts.TransitGateway, "IBM Cloud Transit Gateway. Use this flag to reuse an existing Transit Gateway resource for cluster's infra")
 	cmd.Flags().StringVar(&opts.CloudInstanceID, "cloud-instance-id", opts.CloudInstanceID, "IBM PowerVS Cloud Instance ID. Use this flag to reuse an existing PowerVS Cloud Instance resource for cluster's infra")
 	cmd.Flags().BoolVar(&opts.Debug, "debug", opts.Debug, "Enabling this will result in debug logs will be printed")
 
@@ -111,7 +109,7 @@ func NewDestroyCommand() *cobra.Command {
 	// these options are only for development and testing purpose, user can pass these flags
 	// to destroy the resource created inside these resources for hypershift infra purpose
 	cmd.Flags().MarkHidden("vpc")
-	cmd.Flags().MarkHidden("cloud-connection")
+	cmd.Flags().MarkHidden("transit-gateway")
 	cmd.Flags().MarkHidden("cloud-instance-id")
 
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
@@ -218,19 +216,6 @@ func (options *DestroyInfraOptions) DestroyInfra(ctx context.Context, infra *Inf
 		}
 	}
 
-	var session *ibmpisession.IBMPISession
-	if !skipPowerVs {
-		session, err = createPowerVSSession(accountID, options.Region, options.Zone, options.Debug)
-		if err != nil {
-			return err
-		}
-
-		if err = destroyPowerVsCloudConnection(ctx, options, infra, powerVsCloudInstanceID, session); err != nil {
-			errL = append(errL, fmt.Errorf("error destroying powervs cloud connection: %w", err))
-			log(options.InfraID).Error(err, "error destroying powervs cloud connection")
-		}
-	}
-
 	v1, err := createVpcService(options.VPCRegion, options.InfraID)
 	if err != nil {
 		return err
@@ -246,6 +231,12 @@ func (options *DestroyInfraOptions) DestroyInfra(ctx context.Context, infra *Inf
 		log(options.InfraID).Error(err, "error destroying vpc")
 	}
 
+	if err = destroyTransitGateway(ctx, options); err != nil {
+		errL = append(errL, fmt.Errorf("error destroying transit gateway: %w", err))
+		log(options.InfraID).Error(err, "error destroying transit gateway")
+	}
+
+	var session *ibmpisession.IBMPISession
 	if !skipPowerVs {
 		if err = destroyPowerVsCloudInstance(ctx, options, infra, powerVsCloudInstanceID, session); err != nil {
 			errL = append(errL, fmt.Errorf("error destroying powervs cloud instance: %w", err))
@@ -381,138 +372,6 @@ func destroyPowerVsCloudInstance(ctx context.Context, options *DestroyInfraOptio
 		}
 	}
 	return err
-}
-
-// monitorPowerVsJob monitoring the submitted deletion job
-func monitorPowerVsJob(id string, client *instance.IBMPIJobClient, infraID string, timeout time.Duration) error {
-	f := func() (bool, error) {
-		job, err := client.Get(id)
-		if err != nil {
-			if err = isNotRetryableError(err, timeoutErrorKeywords); err != nil {
-				return false, err
-			}
-			return false, nil
-		}
-		if job == nil {
-			return false, fmt.Errorf("job returned for %s is nil", id)
-		}
-		log(infraID).Info("Waiting for PowerVS job to complete", "id", id, "status", job.Status.State, "operation_action", *job.Operation.Action, "operation_target", *job.Operation.Target)
-
-		if *job.Status.State == powerVSJobCompletedState {
-			return true, nil
-		}
-		if *job.Status.State == powerVSJobFailedState {
-			return false, fmt.Errorf("powerVS job failed. id: %s, message: %s", id, job.Status.Message)
-		}
-		return false, nil
-	}
-
-	return wait.PollImmediate(pollingInterval, timeout, f)
-}
-
-// destroyPowerVsCloudConnection destroying powervs cloud connection
-func destroyPowerVsCloudConnection(ctx context.Context, options *DestroyInfraOptions, infra *Infra, cloudInstanceID string, session *ibmpisession.IBMPISession) error {
-	client := instance.NewIBMPICloudConnectionClient(ctx, session, cloudInstanceID)
-	jobClient := instance.NewIBMPIJobClient(ctx, session, cloudInstanceID)
-	var err error
-
-	var cloudConnName string
-	// Destroying resources created for Hypershift infra creation
-	if options.CloudConnection != "" {
-		cloudConnName = options.CloudConnection
-		var cloudConnL *models.CloudConnections
-		cloudConnL, err = client.GetAll()
-		if err != nil || cloudConnL == nil {
-			return err
-		}
-
-		if len(cloudConnL.CloudConnections) < 1 {
-			log(options.InfraID).Info("No Cloud Connection available to delete in PowerVS")
-			return nil
-		}
-
-		for _, cloudConn := range cloudConnL.CloudConnections {
-			if *cloudConn.Name == cloudConnName {
-				// De-linking the VPC in cloud connection
-				var vpc *models.CloudConnectionEndpointVPC
-				var vpcL []*models.CloudConnectionVPC
-				if cloudConn.Vpc != nil && cloudConn.Vpc.Enabled {
-					for _, v := range cloudConn.Vpc.Vpcs {
-						vpcName := fmt.Sprintf("%s-%s", options.InfraID, vpcNameSuffix)
-						if (options.VPC != "" && v.Name == options.VPC) || v.Name == vpcName {
-							continue
-						}
-						vpcL = append(vpcL, v)
-					}
-					vpc.Enabled = true
-					vpc.Vpcs = vpcL
-				}
-
-				if _, _, err = client.Update(*cloudConn.CloudConnectionID, &models.CloudConnectionUpdate{Name: cloudConn.Name, Vpc: vpc}); err != nil {
-					return err
-				}
-
-				// Removing the DHCP network from cloud connection
-				if cloudConn.Networks != nil {
-					for _, nw := range cloudConn.Networks {
-						nwName := strings.ToLower(*nw.Name)
-						if strings.Contains(nwName, "dhcp") && strings.Contains(nwName, "private") {
-							if _, _, err = client.DeleteNetwork(*cloudConn.CloudConnectionID, *nw.NetworkID); err != nil {
-								return err
-							}
-						}
-					}
-				}
-			}
-		}
-	} else {
-
-		deleteCloudConnection := func(id string) error {
-			for retry := 0; retry < 5; retry++ {
-				if err = deletePowerVsCloudConnection(options, id, client, jobClient); err == nil {
-					return nil
-				}
-				log(options.InfraID).Info("retrying cloud connection deletion")
-			}
-			return err
-		}
-
-		if infra != nil && infra.CloudConnectionID != "" {
-			return deleteCloudConnection(infra.CloudConnectionID)
-		}
-		var cloudConnL *models.CloudConnections
-		cloudConnL, err = client.GetAll()
-		if err != nil || cloudConnL == nil {
-			return err
-		}
-
-		if len(cloudConnL.CloudConnections) < 1 {
-			log(options.InfraID).Info("No Cloud Connection available to delete in PowerVS")
-			return nil
-		}
-
-		cloudConnName = fmt.Sprintf("%s-%s", options.InfraID, cloudConnNameSuffix)
-
-		for _, cloudConn := range cloudConnL.CloudConnections {
-			if *cloudConn.Name == cloudConnName {
-				return deleteCloudConnection(*cloudConn.CloudConnectionID)
-			}
-		}
-	}
-	return nil
-}
-
-// deletePowerVsCloudConnection deletes cloud connection id passed
-func deletePowerVsCloudConnection(options *DestroyInfraOptions, id string, client *instance.IBMPICloudConnectionClient, jobClient *instance.IBMPIJobClient) error {
-	log(options.InfraID).Info("Deleting cloud connection", "id", id)
-	deleteJob, err := client.Delete(id)
-	if err != nil {
-		return err
-	}
-	if deleteJob == nil {
-		return fmt.Errorf("error while deleting cloud connection, delete job returned is nil")
-	}
-	return monitorPowerVsJob(*deleteJob.ID, jobClient, options.InfraID, powerVSResourceDeletionTimeout)
 }
 
 // destroyVpc destroying vpc
@@ -907,4 +766,71 @@ func deleteCOS(ctx context.Context, options *DestroyInfraOptions, resourceGroupI
 	_, err = rcv2.DeleteResourceInstance(&resourcecontrollerv2.DeleteResourceInstanceOptions{ID: cosInstance.ID})
 
 	return err
+}
+
+func destroyTransitGateway(ctx context.Context, options *DestroyInfraOptions) error {
+	tgapisv1, err := transitgatewayapisv1.NewTransitGatewayApisV1(&transitgatewayapisv1.TransitGatewayApisV1Options{
+		Authenticator: getIAMAuth(),
+		Version:       utilpointer.String(currentDate),
+	})
+	if err != nil {
+		return err
+	}
+
+	if options.TransitGateway == "" {
+		transitGatewayName := fmt.Sprintf("%s-%s", options.InfraID, transitGatewayNameSuffix)
+
+		tg, err := validateTransitGatewayByName(ctx, tgapisv1, transitGatewayName, false)
+		if err != nil {
+			if err.Error() == transitGatewayNotFound(transitGatewayName).Error() {
+				return nil
+			}
+			return fmt.Errorf("error retrieving transit gateway by name: %s, err: %w", transitGatewayName, err)
+		}
+
+		tgConnList, _, err := tgapisv1.ListTransitGatewayConnectionsWithContext(ctx, &transitgatewayapisv1.ListTransitGatewayConnectionsOptions{
+			TransitGatewayID: tg.ID,
+		})
+		if err != nil {
+			return fmt.Errorf("error retrieving transit gateway connection list: %v", err)
+		}
+
+		for _, tgConn := range tgConnList.Connections {
+			log(options.InfraID).Info("Deleting transit gateway connection", "name", *tgConn.Name)
+			if _, err = tgapisv1.DeleteTransitGatewayConnectionWithContext(ctx, &transitgatewayapisv1.DeleteTransitGatewayConnectionOptions{
+				TransitGatewayID: tg.ID,
+				ID:               tgConn.ID,
+			}); err != nil {
+				return fmt.Errorf("error deleting transit gateway connection %s, %v", *tgConn.Name, err)
+			}
+		}
+
+		f := func() (bool, error) {
+			tgConnList, _, err = tgapisv1.ListTransitGatewayConnectionsWithContext(ctx, &transitgatewayapisv1.ListTransitGatewayConnectionsOptions{
+				TransitGatewayID: tg.ID,
+			})
+			if err != nil {
+				return false, fmt.Errorf("error retrieving transit gateway connection list: %v", err)
+			}
+			if len(tgConnList.Connections) > 0 {
+				return false, nil
+			}
+
+			return true, nil
+		}
+
+		log(options.InfraID).Info("Waiting for tranist gateway connections to get deleted")
+		if err = wait.PollImmediate(time.Minute*1, time.Minute*10, f); err != nil {
+			return fmt.Errorf("error waiting for tranist gateway connections to get deleted: %v", err)
+		}
+
+		log(options.InfraID).Info("Deleting transit gateway", "name", *tg.Name)
+		if _, err = tgapisv1.DeleteTransitGatewayWithContext(ctx, &transitgatewayapisv1.DeleteTransitGatewayOptions{
+			ID: tg.ID,
+		}); err != nil {
+			return fmt.Errorf("error deleting transit gateway: %w", err)
+		}
+	}
+
+	return nil
 }

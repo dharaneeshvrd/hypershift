@@ -91,7 +91,7 @@ type PowerVSPlatformOptions struct {
 	Region          string
 	Zone            string
 	CloudInstanceID string
-	CloudConnection string
+	TransitGateway  string
 	VPCRegion       string
 	VPC             string
 	VPCSubnet       string
